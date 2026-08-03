@@ -1,0 +1,6 @@
+{
+  "name": "RealWin - WinGo Color Prediction",
+  "description": "Real-time 30s/1m/3m/5m color and number prediction game with WinGo 91 Club theme and UPI deposit/withdrawal management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
