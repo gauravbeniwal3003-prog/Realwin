@@ -50,10 +50,10 @@ app.use(
 // Security: Limit payload sizes to prevent Denial of Service (DoS) via huge JSON payloads
 app.use(express.json({ limit: '50kb' }));
 
-// Security: Global Rate Limiter to prevent DDoS flooding attacks
+// Security: Global Rate Limiter to prevent DDoS flooding attacks (allows live polling for timer & state)
 const globalApiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // 300 requests per 15 minutes
+  max: 10000, // 10000 requests per 15 minutes for real-time polling
   standardHeaders: true,
   legacyHeaders: false,
   validate: { trustProxy: false, xForwardedForHeader: false },
@@ -63,7 +63,7 @@ const globalApiLimiter = rateLimit({
 // Security: Auth Rate Limiter against Brute-Force attack vectors
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 15, // 15 login attempts per 15 minutes
+  max: 300, // 300 login/init attempts per 15 minutes
   standardHeaders: true,
   legacyHeaders: false,
   validate: { trustProxy: false, xForwardedForHeader: false },
@@ -73,7 +73,7 @@ const authLimiter = rateLimit({
 // Security: Transaction Rate Limiter for Bets, Deposits, and Withdrawals
 const transactionLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 20, // 20 requests per minute
+  max: 120, // 120 requests per minute
   standardHeaders: true,
   legacyHeaders: false,
   validate: { trustProxy: false, xForwardedForHeader: false },

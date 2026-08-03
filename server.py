@@ -59,7 +59,7 @@ state = {
 # Simple In-Memory Rate Limiter against DDoS / Brute Force
 rate_limit_store = {}
 
-def check_rate_limit(ip: str, limit: int = 60, window_sec: int = 60):
+def check_rate_limit(ip: str, limit: int = 1000, window_sec: int = 60):
     now = time.time()
     if ip not in rate_limit_store:
         rate_limit_store[ip] = []
