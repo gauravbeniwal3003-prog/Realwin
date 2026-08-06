@@ -90,6 +90,16 @@ app.use('/api/deposit', transactionLimiter);
 app.use('/api/withdraw', transactionLimiter);
 app.use('/api/bet', transactionLimiter);
 
+// Auto-Process Game Rounds on Every API Request (Guarantees timer & payouts on serverless/Vercel)
+app.use('/api', (req, res, next) => {
+  try {
+    checkAndProcessRounds();
+  } catch (err) {
+    console.error('Error auto-processing rounds in middleware:', err);
+  }
+  next();
+});
+
 // Security Input Sanitizers against XSS / Injection / Script exploits
 function sanitizeInput(val: any): string {
   if (typeof val !== 'string') return '';
@@ -293,19 +303,22 @@ function getActivePeriod(room: string = 'WINGO_30S'): { period: string; secondsR
 
 let lastProcessedMap: Record<string, string> = {};
 
-// Round completion check loop (runs every 1 second)
-setInterval(() => {
+// Round completion check loop (runs every 1 second or on every API call)
+export function checkAndProcessRounds() {
   const rooms = ['WINGO_30S', 'WINGO_1M'];
   for (const r of rooms) {
     const { period, secondsRemaining, duration } = getActivePeriod(r);
-    if (secondsRemaining === duration && lastProcessedMap[r] !== period) {
-      const prevPeriod = getPreviousPeriodStr(period);
-      if (!state.rounds.some(rd => rd.period === prevPeriod && rd.room === (r as RoomType))) {
-        processRoundResult(prevPeriod, r as RoomType);
-        lastProcessedMap[r] = period;
-      }
+    const prevPeriod = getPreviousPeriodStr(period);
+    if (!state.rounds.some(rd => rd.period === prevPeriod && rd.room === (r as RoomType))) {
+      processRoundResult(prevPeriod, r as RoomType);
+      lastProcessedMap[r] = period;
     }
   }
+}
+
+// Background Interval for persistent process
+setInterval(() => {
+  checkAndProcessRounds();
 }, 1000);
 
 function getPreviousPeriodStr(currentPeriodStr: string): string {
@@ -1422,4 +1435,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (process.env.VERCEL !== '1') {
+  startServer();
+}
+
+export default app;

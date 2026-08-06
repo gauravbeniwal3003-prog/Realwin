@@ -13,6 +13,8 @@ import { ReferralPage } from './pages/ReferralPage';
 import { ScrollToTop } from './components/ScrollToTop';
 import { BottomNav } from './components/BottomNav';
 import { GameResultModal, GameResultModalData } from './components/GameResultModal';
+import { RealWinLogo } from './components/RealWinLogo';
+import { RefreshCw } from 'lucide-react';
 import {
   User,
   GameRound,
@@ -38,6 +40,7 @@ import {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
   const [activeRoom, setActiveRoom] = useState<RoomType>('WINGO_30S');
   const [gameState, setGameState] = useState<ServerGameState | null>(null);
   const [history, setHistory] = useState<GameRound[]>([]);
@@ -122,6 +125,7 @@ export default function App() {
       const savedPhone = localStorage.getItem('realwin_user_phone');
       if (!savedPhone) {
         setUser(null);
+        setIsCheckingAuth(false);
         return;
       }
       try {
@@ -130,10 +134,35 @@ export default function App() {
       } catch (err) {
         console.error('Failed to init user', err);
         setUser(null);
+      } finally {
+        setIsCheckingAuth(false);
       }
     }
     initUser();
   }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('realwin_user_phone');
+    setUser(null);
+  };
+
+  const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+    if (isCheckingAuth) {
+      return (
+        <div className="min-h-screen bg-[#f7f8ff] flex flex-col items-center justify-center p-4 font-sans select-none">
+          <RealWinLogo size="lg" lightMode={true} />
+          <div className="mt-4 flex items-center gap-2 text-xs font-bold text-gray-500 animate-pulse">
+            <RefreshCw className="w-4 h-4 animate-spin text-[#ff5353]" />
+            <span>Verifying session...</span>
+          </div>
+        </div>
+      );
+    }
+    if (!user) {
+      return <Navigate to="/login" replace />;
+    }
+    return <>{children}</>;
+  };
 
   // Synchronized sync loop based on active room
   const syncServer = useCallback(async () => {
@@ -265,19 +294,45 @@ export default function App() {
       <ScrollToTop />
       <Routes>
         {/* Main Platform Lobby / Landing Page */}
-        <Route path="/" element={<LandingPage user={user} />} />
-        <Route path="/home" element={<LandingPage user={user} />} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <LandingPage user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/home"
+          element={
+            <ProtectedRoute>
+              <LandingPage user={user} />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Auth Pages */}
         <Route
           path="/login"
           element={
-            <AuthPage
-              onSuccess={u => {
-                setUser(u);
-                localStorage.setItem('realwin_user_phone', u.phone);
-              }}
-            />
+            isCheckingAuth ? (
+              <div className="min-h-screen bg-[#f7f8ff] flex flex-col items-center justify-center p-4 font-sans select-none">
+                <RealWinLogo size="lg" lightMode={true} />
+                <div className="mt-4 flex items-center gap-2 text-xs font-bold text-gray-500 animate-pulse">
+                  <RefreshCw className="w-4 h-4 animate-spin text-[#ff5353]" />
+                  <span>Verifying session...</span>
+                </div>
+              </div>
+            ) : user ? (
+              <Navigate to="/game" replace />
+            ) : (
+              <AuthPage
+                onSuccess={u => {
+                  setUser(u);
+                  localStorage.setItem('realwin_user_phone', u.phone);
+                }}
+              />
+            )
           }
         />
         <Route path="/register" element={<Navigate to="/login" replace />} />
@@ -287,20 +342,22 @@ export default function App() {
         <Route
           path="/game"
           element={
-            <GamePage
-              user={user}
-              gameState={gameState}
-              activeRoom={activeRoom}
-              onChangeRoom={room => {
-                setActiveRoom(room);
-                setLastPeriodId('');
-              }}
-              history={history}
-              myBets={myBets}
-              onPlaceBet={handlePlaceBet}
-              onRefreshUser={handleRefreshUser}
-              isRefreshing={isRefreshingUser}
-            />
+            <ProtectedRoute>
+              <GamePage
+                user={user}
+                gameState={gameState}
+                activeRoom={activeRoom}
+                onChangeRoom={room => {
+                  setActiveRoom(room);
+                  setLastPeriodId('');
+                }}
+                history={history}
+                myBets={myBets}
+                onPlaceBet={handlePlaceBet}
+                onRefreshUser={handleRefreshUser}
+                isRefreshing={isRefreshingUser}
+              />
+            </ProtectedRoute>
           }
         />
         <Route path="/game/30s" element={<Navigate to="/game?room=WINGO_30S" replace />} />
@@ -310,16 +367,18 @@ export default function App() {
         <Route
           path="/wallet"
           element={
-            <WalletPage
-              user={user}
-              settings={settings}
-              deposits={deposits}
-              withdrawals={withdrawals}
-              onSubmitDeposit={handleDepositSubmit}
-              onSubmitWithdrawal={handleWithdrawalSubmit}
-              onRefreshUser={handleRefreshUser}
-              isRefreshing={isRefreshingUser}
-            />
+            <ProtectedRoute>
+              <WalletPage
+                user={user}
+                settings={settings}
+                deposits={deposits}
+                withdrawals={withdrawals}
+                onSubmitDeposit={handleDepositSubmit}
+                onSubmitWithdrawal={handleWithdrawalSubmit}
+                onRefreshUser={handleRefreshUser}
+                isRefreshing={isRefreshingUser}
+              />
+            </ProtectedRoute>
           }
         />
         <Route path="/deposit" element={<Navigate to="/wallet?tab=DEPOSIT" replace />} />
@@ -333,21 +392,27 @@ export default function App() {
         <Route
           path="/account"
           element={
-            <ProfilePage
-              user={user}
-              onRefreshUser={handleRefreshUser}
-              isRefreshing={isRefreshingUser}
-            />
+            <ProtectedRoute>
+              <ProfilePage
+                user={user}
+                onRefreshUser={handleRefreshUser}
+                isRefreshing={isRefreshingUser}
+                onLogout={handleLogout}
+              />
+            </ProtectedRoute>
           }
         />
         <Route
           path="/profile"
           element={
-            <ProfilePage
-              user={user}
-              onRefreshUser={handleRefreshUser}
-              isRefreshing={isRefreshingUser}
-            />
+            <ProtectedRoute>
+              <ProfilePage
+                user={user}
+                onRefreshUser={handleRefreshUser}
+                isRefreshing={isRefreshingUser}
+                onLogout={handleLogout}
+              />
+            </ProtectedRoute>
           }
         />
 
@@ -366,10 +431,12 @@ export default function App() {
         <Route
           path="/fairplay"
           element={
-            <FairPlayPage
-              user={user}
-              historyRounds={history}
-            />
+            <ProtectedRoute>
+              <FairPlayPage
+                user={user}
+                historyRounds={history}
+              />
+            </ProtectedRoute>
           }
         />
 
@@ -377,9 +444,11 @@ export default function App() {
         <Route
           path="/rules"
           element={
-            <RulesPage
-              user={user}
-            />
+            <ProtectedRoute>
+              <RulesPage
+                user={user}
+              />
+            </ProtectedRoute>
           }
         />
 
@@ -387,12 +456,14 @@ export default function App() {
         <Route
           path="/support"
           element={
-            <SupportPage
-              user={user}
-              deposits={deposits}
-              withdrawals={withdrawals}
-              myBets={myBets}
-            />
+            <ProtectedRoute>
+              <SupportPage
+                user={user}
+                deposits={deposits}
+                withdrawals={withdrawals}
+                myBets={myBets}
+              />
+            </ProtectedRoute>
           }
         />
 
@@ -400,16 +471,18 @@ export default function App() {
         <Route
           path="/referral"
           element={
-            <ReferralPage
-              user={user}
-            />
+            <ProtectedRoute>
+              <ReferralPage
+                user={user}
+              />
+            </ProtectedRoute>
           }
         />
 
         {/* Default route redirect to /game */}
         <Route path="*" element={<Navigate to="/game" replace />} />
       </Routes>
-      <BottomNav />
+      {user && <BottomNav />}
       <GameResultModal data={resultModalData} onClose={handleCloseResultModal} />
     </BrowserRouter>
   );

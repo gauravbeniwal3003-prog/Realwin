@@ -11,12 +11,14 @@ interface ProfilePageProps {
   user: User | null;
   onRefreshUser?: () => void;
   isRefreshing?: boolean;
+  onLogout?: () => void;
 }
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({
   user,
   onRefreshUser,
   isRefreshing = false,
+  onLogout,
 }) => {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
@@ -211,7 +213,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         {/* Switch / Logout */}
         <button
-          onClick={() => navigate('/login')}
+          onClick={() => {
+            if (onLogout) onLogout();
+            navigate('/login');
+          }}
           className="w-full py-3.5 rounded-2xl border border-gray-200 bg-white text-gray-800 text-xs font-extrabold flex items-center justify-center gap-2 hover:bg-gray-50 transition shadow-xs"
         >
           <LogOut className="w-4 h-4 text-[#ff5353]" />

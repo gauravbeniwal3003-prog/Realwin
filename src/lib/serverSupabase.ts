@@ -4,7 +4,7 @@ dotenv.config();
 
 import { User, GameRound, Bet, DepositRequest, WithdrawalRequest, SystemSettings, RoomType } from '../types';
 
-// Supabase Credentials
+// Supabase Credentials Hardcoded
 export const SUPABASE_URL = process.env.SUPABASE_URL || 'https://tkvcianczzdxrjylrdyq.supabase.co';
 export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrdmNpYW5jenpkeHJqeWxyZHlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTMwNjQsImV4cCI6MjEwMTI4OTA2NH0.81-XSAxkfZ1nIH4UpYKeX4ybrR3olnt0KkZ6l8vngCg';
 
