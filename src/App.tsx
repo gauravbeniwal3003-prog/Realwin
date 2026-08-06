@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LandingPage } from './pages/LandingPage';
 import { GamePage } from './pages/GamePage';
@@ -12,6 +12,7 @@ import { SupportPage } from './pages/SupportPage';
 import { ReferralPage } from './pages/ReferralPage';
 import { ScrollToTop } from './components/ScrollToTop';
 import { BottomNav } from './components/BottomNav';
+import { GameResultModal, GameResultModalData } from './components/GameResultModal';
 import {
   User,
   GameRound,
@@ -57,15 +58,78 @@ export default function App() {
   const [isRefreshingUser, setIsRefreshingUser] = useState<boolean>(false);
   const [lastPeriodId, setLastPeriodId] = useState<string>('');
 
+  // Win/Loss Result Modal State
+  const [resultModalData, setResultModalData] = useState<GameResultModalData | null>(null);
+  const acknowledgedPeriodsRef = useRef<Set<string>>(new Set());
+  const initialBetsLoadedRef = useRef<boolean>(false);
+
+  // Detect newly resolved bets to open Win/Loss Result Pop-Up Modal
+  useEffect(() => {
+    if (!user || myBets.length === 0) return;
+
+    // On initial bets load, mark all currently resolved bets as acknowledged so past history does not pop up
+    if (!initialBetsLoadedRef.current) {
+      myBets.forEach(b => {
+        if (b.status !== 'PENDING') {
+          acknowledgedPeriodsRef.current.add(b.period);
+        }
+      });
+      initialBetsLoadedRef.current = true;
+      return;
+    }
+
+    // Find any resolved bet (WON or LOST) whose period has not been acknowledged yet
+    const unacknowledgedResolvedBets = myBets.filter(
+      b => b.status !== 'PENDING' && !acknowledgedPeriodsRef.current.has(b.period)
+    );
+
+    if (unacknowledgedResolvedBets.length === 0) return;
+
+    // Pick the most recent period among unacknowledged bets
+    const targetPeriod = unacknowledgedResolvedBets[0].period;
+    const periodBets = myBets.filter(b => b.period === targetPeriod && b.status !== 'PENDING');
+
+    if (periodBets.length === 0) return;
+
+    const totalInvested = periodBets.reduce((sum, b) => sum + b.amount, 0);
+    const totalPayout = periodBets.reduce((sum, b) => sum + b.payout, 0);
+    const netProfit = totalPayout - totalInvested;
+    const isWin = totalPayout > 0;
+    const matchedRound = history.find(r => r.period === targetPeriod);
+
+    setResultModalData({
+      period: targetPeriod,
+      room: periodBets[0].room,
+      round: matchedRound,
+      bets: periodBets,
+      totalInvested,
+      totalPayout,
+      netProfit,
+      isWin,
+    });
+  }, [myBets, history, user]);
+
+  const handleCloseResultModal = () => {
+    if (resultModalData) {
+      acknowledgedPeriodsRef.current.add(resultModalData.period);
+    }
+    setResultModalData(null);
+  };
+
   // Initial user loading
   useEffect(() => {
     async function initUser() {
-      const savedPhone = localStorage.getItem('realwin_user_phone') || '9876543210';
+      const savedPhone = localStorage.getItem('realwin_user_phone');
+      if (!savedPhone) {
+        setUser(null);
+        return;
+      }
       try {
         const u = await loginUser(savedPhone);
         setUser(u);
       } catch (err) {
         console.error('Failed to init user', err);
+        setUser(null);
       }
     }
     initUser();
@@ -201,12 +265,10 @@ export default function App() {
       <ScrollToTop />
       <Routes>
         {/* Main Platform Lobby / Landing Page */}
-        <Route
-          path="/"
-          element={<LandingPage user={user} />}
-        />
+        <Route path="/" element={<LandingPage user={user} />} />
+        <Route path="/home" element={<LandingPage user={user} />} />
 
-        {/* Landing Auth Page */}
+        {/* Auth Pages */}
         <Route
           path="/login"
           element={
@@ -218,8 +280,10 @@ export default function App() {
             />
           }
         />
+        <Route path="/register" element={<Navigate to="/login" replace />} />
+        <Route path="/auth" element={<Navigate to="/login" replace />} />
 
-        {/* Main WinGo Game Page */}
+        {/* Main WinGo Game Page & Specific Room Routes */}
         <Route
           path="/game"
           element={
@@ -239,8 +303,10 @@ export default function App() {
             />
           }
         />
+        <Route path="/game/30s" element={<Navigate to="/game?room=WINGO_30S" replace />} />
+        <Route path="/game/1m" element={<Navigate to="/game?room=WINGO_1M" replace />} />
 
-        {/* Wallet Page */}
+        {/* Wallet Page & Specific Sub-Routes */}
         <Route
           path="/wallet"
           element={
@@ -256,10 +322,26 @@ export default function App() {
             />
           }
         />
+        <Route path="/deposit" element={<Navigate to="/wallet?tab=DEPOSIT" replace />} />
+        <Route path="/wallet/deposit" element={<Navigate to="/wallet?tab=DEPOSIT" replace />} />
+        <Route path="/withdraw" element={<Navigate to="/wallet?tab=WITHDRAW" replace />} />
+        <Route path="/wallet/withdraw" element={<Navigate to="/wallet?tab=WITHDRAW" replace />} />
+        <Route path="/history" element={<Navigate to="/wallet?tab=HISTORY" replace />} />
+        <Route path="/wallet/history" element={<Navigate to="/wallet?tab=HISTORY" replace />} />
 
         {/* Profile / Account Page */}
         <Route
           path="/account"
+          element={
+            <ProfilePage
+              user={user}
+              onRefreshUser={handleRefreshUser}
+              isRefreshing={isRefreshingUser}
+            />
+          }
+        />
+        <Route
+          path="/profile"
           element={
             <ProfilePage
               user={user}
@@ -328,6 +410,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/game" replace />} />
       </Routes>
       <BottomNav />
+      <GameResultModal data={resultModalData} onClose={handleCloseResultModal} />
     </BrowserRouter>
   );
 }

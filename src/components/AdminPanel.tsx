@@ -29,7 +29,7 @@ interface AdminPanelProps {
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onRefreshGlobalState }) => {
-  const [pinInput, setPinInput] = useState<string>('admin123');
+  const [pinInput, setPinInput] = useState<string>('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -157,7 +157,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onRefreshGlobal
 
   const handleSetOverride = async (num: number | null) => {
     try {
-      const msg = await overrideRoundNumber(num);
+      const msg = await overrideRoundNumber({ number: num });
       setFeedbackMsg({ type: 'SUCCESS', text: msg });
       loadAdminData();
     } catch (err: any) {
@@ -201,12 +201,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onRefreshGlobal
 
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
-              <label className="text-xs font-semibold text-slate-400 block mb-1">Admin PIN (Default: admin123)</label>
+              <label className="text-xs font-semibold text-slate-400 block mb-1">Admin Access Key</label>
               <input
                 type="password"
                 value={pinInput}
                 onChange={e => setPinInput(e.target.value)}
-                placeholder="admin123"
+                placeholder="Enter Access Key"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-center text-lg font-mono tracking-widest text-amber-400 focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -682,8 +682,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onRefreshGlobal
                 <label className="text-xs font-semibold text-slate-400">Deposit Receive UPI ID</label>
                 <input
                   type="text"
+                  inputMode="email"
+                  autoCapitalize="none"
                   value={upiIdInput}
-                  onChange={e => setUpiIdInput(e.target.value)}
+                  onChange={e => setUpiIdInput(e.target.value.trim().toLowerCase())}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-amber-300 font-mono"
                 />
               </div>
@@ -693,6 +695,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onRefreshGlobal
                   <label className="text-xs font-semibold text-slate-400">Min Deposit (₹)</label>
                   <input
                     type="number"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={minDepInput}
                     onChange={e => setMinDepInput(Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"
@@ -703,6 +707,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onRefreshGlobal
                   <label className="text-xs font-semibold text-slate-400">Min Withdrawal (₹)</label>
                   <input
                     type="number"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={minWthInput}
                     onChange={e => setMinWthInput(Number(e.target.value))}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200"

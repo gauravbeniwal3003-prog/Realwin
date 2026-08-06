@@ -6,7 +6,7 @@ export type BetSelection =
   | 'SMALL'
   | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
 
-export type RoomType = 'WINGO_30S' | 'WINGO_1M' | 'WINGO_3M' | 'WINGO_5M' | 'PARITY' | 'SAPRE' | 'BCONE' | 'EMERD';
+export type RoomType = 'WINGO_30S' | 'WINGO_1M' | 'PARITY' | 'SAPRE' | 'BCONE' | 'EMERD';
 
 export interface GameRound {
   period: string;
@@ -41,7 +41,12 @@ export interface User {
   name: string;
   balance: number;
   isAdmin: boolean;
+  isBanned?: boolean;
+  vipLevel?: number;
+  password?: string;
   createdAt: number;
+  referredBy?: string;
+  referralEarnings?: number;
 }
 
 export interface BankAccountDetails {
@@ -89,6 +94,13 @@ export interface SystemSettings {
   minWithdrawal: number;
   maxWithdrawal: number;
   manualOverrideNumber: number | null; // null for auto fair random
+  supportTelegram?: string;
+  supportPhone?: string;
+  noticeMarquee?: string;
+  signupBonus?: number;
+  referralCommissionPercent?: number;
+  adminPin?: string;
+  maintenanceMode?: boolean;
 }
 
 export interface ServerGameState {

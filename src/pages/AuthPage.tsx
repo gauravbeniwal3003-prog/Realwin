@@ -173,8 +173,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
             <div className="relative">
               <input
                 type="tel"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="tel"
                 value={phone}
-                onChange={e => setPhone(e.target.value)}
+                onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 placeholder="Enter 10-digit mobile number"
                 maxLength={10}
                 className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm font-bold font-mono text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#ff5353] focus:bg-white transition"

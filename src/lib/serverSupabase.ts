@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { User, GameRound, Bet, DepositRequest, WithdrawalRequest, SystemSettings, RoomType } from '../types';
 
 // Supabase Credentials
 export const SUPABASE_URL = process.env.SUPABASE_URL || 'https://tkvcianczzdxrjylrdyq.supabase.co';
-export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRlZiI6InRrdmNpYW5jenpkeHJqeWxyZHlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTMwNjQsImV4cCI6MjEwMTI4OTA2NH0.81-XSAxkfZ1nIH4UpYKeX4ybrR3olnt0KkZ6l8vngCg';
+export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrdmNpYW5jenpkeHJqeWxyZHlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTMwNjQsImV4cCI6MjEwMTI4OTA2NH0.81-XSAxkfZ1nIH4UpYKeX4ybrR3olnt0KkZ6l8vngCg';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -289,12 +292,12 @@ export async function saveWithdrawalToSupabase(withdrawal: WithdrawalRequest): P
 
 export async function loadSystemSettingsFromSupabase(): Promise<SystemSettings | null> {
   try {
-    const { data, error } = await supabase.from('system_settings').select('*').eq('id', 'main').single();
+    const { data, error } = await supabase.from('system_settings').select('*').limit(1).maybeSingle();
     if (error || !data) return null;
     return {
-      upiId: data.upi_id,
-      upiName: data.upi_name,
-      qrCodeUrl: data.qr_code_url,
+      upiId: data.upi_id || '9876543210@ybl',
+      upiName: data.upi_name || 'Realwin Game',
+      qrCodeUrl: data.qr_code_url || 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=9876543210@ybl',
       minDeposit: Number(data.min_deposit || 500),
       maxDeposit: Number(data.max_deposit || 5000),
       minWithdrawal: Number(data.min_withdrawal || 300),
@@ -310,7 +313,7 @@ export async function loadSystemSettingsFromSupabase(): Promise<SystemSettings |
 export async function saveSystemSettingsToSupabase(settings: SystemSettings): Promise<void> {
   try {
     await supabase.from('system_settings').upsert({
-      id: 'main',
+      id: 1,
       upi_id: settings.upiId,
       upi_name: settings.upiName,
       qr_code_url: settings.qrCodeUrl,

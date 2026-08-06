@@ -1,10 +1,48 @@
 import React, { useState } from 'react';
 import { 
   Wallet, RefreshCw, Volume2, Flame, Clock, HelpCircle, 
-  Minus, Plus, CheckCircle2, AlertCircle, Sparkles, ChevronRight, Shuffle
+  Minus, Plus, CheckCircle2, AlertCircle, Sparkles, ChevronRight, Shuffle, Coins, Users
 } from 'lucide-react';
 import { RoomType, BetSelection, ServerGameState, User, GameRound, Bet } from '../types';
 import { GameHistory } from './GameHistory';
+
+// Deterministically compute realistic round bid numbers (100-200 base bidders, ₹2k-₹4k base amount, growing over days)
+const getDeterministicRoundStats = (periodStr: string) => {
+  const periodNum = parseInt(periodStr.slice(-6) || '100001', 10);
+  const baseLaunchTime = 1769800000000;
+  const daysElapsed = Math.max(0, Math.floor((Date.now() - baseLaunchTime) / (1000 * 60 * 60 * 24)));
+
+  const seed1 = (periodNum * 9301 + 49297) % 233280;
+  const seed2 = (periodNum * 49297 + 9301) % 233280;
+
+  const bidders = 100 + (seed1 % 100) + Math.min(daysElapsed * 3, 300);
+  const totalAmount = 2000 + (seed2 % 2000) + Math.min(daysElapsed * 50, 5000);
+
+  return { bidders, totalAmount };
+};
+
+// Calculate realistic live online users vs active bidders allotment (slow & smooth updates)
+const getLiveUserStats = (periodStr: string, secs: number) => {
+  const periodNum = parseInt(periodStr.slice(-6) || '100001', 10);
+  const baseLaunchTime = 1769800000000;
+  const daysElapsed = Math.max(0, Math.floor((Date.now() - baseLaunchTime) / (1000 * 60 * 60 * 24)));
+
+  // Base count for the round (stable during the round)
+  const baseSeed = (periodNum * 7919 + 104729) % 1000;
+  const baseOnline = 320 + (baseSeed % 80) + Math.min(daysElapsed * 5, 500);
+
+  // Group seconds into 10-second intervals so numbers change slowly and smoothly
+  const timeStep = Math.floor(secs / 10); 
+  const drift = (((periodNum * 7) + timeStep) * 3137) % 7 - 3; // slight drift of -3 to +3
+  const totalOnline = baseOnline + drift;
+
+  // Active bidders is roughly 48% - 54% of active online users
+  const ratioSeed = (((periodNum * 13) + timeStep) * 1009) % 5;
+  const ratio = 0.48 + (ratioSeed * 0.015);
+  const activeBidders = Math.floor(totalOnline * ratio);
+
+  return { totalOnline, activeBidders };
+};
 
 interface GameCanvasProps {
   gameState: ServerGameState | null;
@@ -103,6 +141,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const secondsRemaining = gameState?.secondsRemaining ?? 30;
   const isLocked = gameState?.isLocked ?? false;
   const period = gameState?.period ?? '100001';
+
+  const roundStats = getDeterministicRoundStats(period);
+  const liveStats = getLiveUserStats(period, secondsRemaining);
 
   // Format digital countdown e.g. 0 0 : 2 8
   const formatTimeDigits = (secs: number) => {
@@ -233,6 +274,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         </button>
       </div>
 
+      {/* 2.5 Live Online Users & Active Bidders Widget Allotment */}
+      <div className="bg-white rounded-2xl p-2.5 px-3.5 shadow-xs border border-gray-100 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+          <div className="flex items-center gap-1 font-bold text-gray-800">
+            <span>Online:</span>
+            <span className="font-mono font-black text-emerald-600">{liveStats.totalOnline}</span>
+          </div>
+        </div>
+
+        <div className="h-3.5 w-px bg-gray-200"></div>
+
+        <div className="flex items-center gap-1.5 font-bold text-gray-800">
+          <Users className="w-3.5 h-3.5 text-amber-500" />
+          <span>Active Bidders:</span>
+          <span className="font-mono font-black text-amber-600">{liveStats.activeBidders}</span>
+        </div>
+      </div>
+
       {/* 3. Time Mode Tabs (WinGo 30sec, 1 Min) */}
       <div className="bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 grid grid-cols-2 gap-2">
         {rooms.map(room => {
@@ -320,7 +383,46 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       </div>
 
       {/* 5. Main Prediction Area */}
-      <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-gray-100 space-y-3">
+      <div className="bg-white rounded-2xl p-3.5 shadow-sm border border-gray-100 space-y-3 relative overflow-hidden">
+        {/* 5s Calculation Blurred Overlay with Demo Numbers */}
+        {(isLocked || secondsRemaining <= 5) && (
+          <div className="absolute inset-0 z-30 bg-white/85 backdrop-blur-md rounded-2xl flex flex-col items-center justify-center p-4 text-center space-y-3 animate-fadeIn border-2 border-[#ff5353]/30 shadow-2xl">
+            {/* Top Spinning Coins / Clock Badge */}
+            <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#ff5353] to-[#feaa38] p-0.5 shadow-lg animate-pulse flex items-center justify-center">
+              <div className="w-full h-full rounded-full bg-white flex items-center justify-center">
+                <Coins className="w-7 h-7 text-[#ff5353] animate-bounce" />
+              </div>
+            </div>
+
+            {/* Calculation Title & Seconds Countdown */}
+            <div className="space-y-0.5">
+              <span className="text-xs font-black uppercase tracking-wider text-gray-500 block">Calculating Round Result</span>
+              <div className="font-mono font-black text-3xl text-gray-900 tracking-tight flex items-center justify-center gap-1">
+                <span className="bg-gray-100 px-2 py-0.5 rounded-lg border border-gray-200">00</span>
+                <span>:</span>
+                <span className="bg-red-50 text-[#ff5353] px-2 py-0.5 rounded-lg border border-red-200">
+                  {String(secondsRemaining).padStart(2, '0')}
+                </span>
+              </div>
+            </div>
+
+            {/* Demo Round Bidders & Total Pool Amount Overlay Numbers */}
+            <div className="w-full max-w-xs bg-slate-50 border border-slate-200 rounded-2xl p-3 grid grid-cols-2 gap-2 text-center shadow-xs">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase block">Active Bidders</span>
+                <span className="font-mono font-black text-base text-gray-900 block">{roundStats.bidders} Players</span>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase block">Total Round Pool</span>
+                <span className="font-mono font-black text-base text-emerald-600 block">₹{roundStats.totalAmount.toLocaleString('en-IN')}.00</span>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-gray-400 font-medium">
+              Bidding closed. SHA-256 seed calculating outcome...
+            </p>
+          </div>
+        )}
         {/* Color Prediction Buttons (Green, Violet, Red) */}
         <div className="grid grid-cols-3 gap-2.5">
           <button

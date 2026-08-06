@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { GameCanvas } from '../components/GameCanvas';
 import { Gamepad2, Wallet, User as UserIcon } from 'lucide-react';
@@ -29,10 +29,26 @@ export const GamePage: React.FC<GamePageProps> = ({
   isRefreshing = false,
 }) => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
+
+  // Sync URL search params with activeRoom
+  useEffect(() => {
+    const roomParam = (searchParams.get('room') || searchParams.get('type') || '').toUpperCase();
+    if ((roomParam === 'WINGO_1M' || roomParam === '1M') && activeRoom !== 'WINGO_1M') {
+      onChangeRoom('WINGO_1M');
+    } else if ((roomParam === 'WINGO_30S' || roomParam === '30S') && activeRoom !== 'WINGO_30S') {
+      onChangeRoom('WINGO_30S');
+    }
+  }, [searchParams]);
+
+  const handleRoomChange = (room: RoomType) => {
+    onChangeRoom(room);
+    setSearchParams({ room });
+  };
 
   return (
     <div className="min-h-screen bg-[#f7f8ff] text-gray-900 flex flex-col font-sans select-none pb-24">
@@ -48,7 +64,7 @@ export const GamePage: React.FC<GamePageProps> = ({
           onOpenSupport={() => navigate('/support')}
           lastRoundResult={history[0]}
           activeRoom={activeRoom}
-          onChangeRoom={onChangeRoom}
+          onChangeRoom={handleRoomChange}
           recentRounds={history}
           myBets={myBets}
           onVerifySeed={() => navigate('/fairplay')}

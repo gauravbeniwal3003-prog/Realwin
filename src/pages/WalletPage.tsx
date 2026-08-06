@@ -37,12 +37,18 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (searchParams.get('tab') as 'DEPOSIT' | 'WITHDRAW' | 'HISTORY') || 'DEPOSIT';
+  const rawTab = (searchParams.get('tab') || '').toUpperCase();
+  const initialTab: 'DEPOSIT' | 'WITHDRAW' | 'HISTORY' =
+    rawTab === 'WITHDRAW' ? 'WITHDRAW' : rawTab === 'HISTORY' ? 'HISTORY' : 'DEPOSIT';
   const [activeTab, setActiveTab] = useState<'DEPOSIT' | 'WITHDRAW' | 'HISTORY'>(initialTab);
 
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, []);
+    const tab = (searchParams.get('tab') || '').toUpperCase();
+    if (tab === 'WITHDRAW' || tab === 'HISTORY' || tab === 'DEPOSIT') {
+      setActiveTab(tab as 'DEPOSIT' | 'WITHDRAW' | 'HISTORY');
+    }
+  }, [searchParams]);
 
   // Deposit State
   const [depositAmount, setDepositAmount] = useState<number>(500);
@@ -351,6 +357,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 <div className="pt-1 space-y-1">
                   <input
                     type="number"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     min={settings.minDeposit || 500}
                     max={settings.maxDeposit || 5000}
                     value={depositAmount}
@@ -372,10 +380,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 </label>
                 <input
                   type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder="e.g. 421598201934"
-                  maxLength={20}
+                  maxLength={12}
                   value={utrNumber}
-                  onChange={e => setUtrNumber(e.target.value)}
+                  onChange={e => setUtrNumber(e.target.value.replace(/\D/g, '').slice(0, 12))}
                   className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm font-mono font-bold text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#18b660]"
                 />
                 <p className="text-[10px] text-gray-500 font-medium">
@@ -461,6 +471,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 </label>
                 <input
                   type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   min={settings.minWithdrawal || 300}
                   max={Math.min(user?.balance ?? 0, settings.maxWithdrawal || 300000)}
                   value={withdrawAmount}
@@ -504,9 +516,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                     <label className="text-xs font-extrabold text-gray-700">Your Receiving UPI ID</label>
                     <input
                       type="text"
+                      inputMode="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
                       placeholder="e.g. 9876543210@paytm or name@upi"
                       value={withdrawUpi}
-                      onChange={e => setWithdrawUpi(e.target.value)}
+                      onChange={e => setWithdrawUpi(e.target.value.trim().toLowerCase())}
                       className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-900 font-bold placeholder-gray-400 focus:outline-none focus:border-[#ff5353]"
                     />
                   </div>
@@ -528,9 +543,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                         <label className="text-xs font-extrabold text-gray-700">Account Number</label>
                         <input
                           type="text"
-                          placeholder="11-16 digits"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={18}
+                          placeholder="11-18 digits"
                           value={accNumber}
-                          onChange={e => setAccNumber(e.target.value)}
+                          onChange={e => setAccNumber(e.target.value.replace(/\D/g, '').slice(0, 18))}
                           className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 font-mono font-bold focus:outline-none focus:border-[#ff5353]"
                         />
                       </div>
@@ -539,9 +557,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                         <label className="text-xs font-extrabold text-gray-700">IFSC Code</label>
                         <input
                           type="text"
+                          inputMode="text"
+                          autoCapitalize="characters"
+                          maxLength={11}
                           placeholder="e.g. SBIN0001234"
                           value={ifsc}
-                          onChange={e => setIfsc(e.target.value)}
+                          onChange={e => setIfsc(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11))}
                           className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-3.5 py-2.5 text-xs text-gray-900 font-mono font-bold uppercase focus:outline-none focus:border-[#ff5353]"
                         />
                       </div>

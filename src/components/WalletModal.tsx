@@ -286,6 +286,8 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                 </div>
                 <input
                   type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   min={settings.minDeposit}
                   value={depositAmount}
                   onChange={e => setDepositAmount(Number(e.target.value))}
@@ -301,10 +303,12 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                 </label>
                 <input
                   type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder="e.g. 421598201934"
-                  maxLength={20}
+                  maxLength={12}
                   value={utrNumber}
-                  onChange={e => setUtrNumber(e.target.value)}
+                  onChange={e => setUtrNumber(e.target.value.replace(/\D/g, '').slice(0, 12))}
                   className="w-full bg-white border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#18b660]"
                 />
                 <p className="text-[10px] text-gray-500 font-medium">
@@ -377,6 +381,8 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                 </label>
                 <input
                   type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   min={settings.minWithdrawal}
                   max={user?.balance ?? 0}
                   value={withdrawAmount}
@@ -423,9 +429,12 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                   <label className="text-xs font-extrabold text-gray-700">Your UPI ID</label>
                   <input
                     type="text"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
                     placeholder="e.g. mobile@paytm or name@upi"
                     value={withdrawUpi}
-                    onChange={e => setWithdrawUpi(e.target.value)}
+                    onChange={e => setWithdrawUpi(e.target.value.trim().toLowerCase())}
                     className="w-full bg-white border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 font-bold placeholder-gray-400 focus:outline-none focus:border-[#ff5353]"
                   />
                 </div>
@@ -447,9 +456,12 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                       <label className="text-[11px] font-extrabold text-gray-600">Account Number</label>
                       <input
                         type="text"
-                        placeholder="11-16 digits"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={18}
+                        placeholder="11-18 digits"
                         value={accNumber}
-                        onChange={e => setAccNumber(e.target.value)}
+                        onChange={e => setAccNumber(e.target.value.replace(/\D/g, '').slice(0, 18))}
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-900 font-mono font-bold focus:outline-none focus:border-[#ff5353]"
                       />
                     </div>
@@ -458,9 +470,12 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                       <label className="text-[11px] font-extrabold text-gray-600">IFSC Code</label>
                       <input
                         type="text"
+                        inputMode="text"
+                        autoCapitalize="characters"
+                        maxLength={11}
                         placeholder="e.g. SBIN0001234"
                         value={ifsc}
-                        onChange={e => setIfsc(e.target.value)}
+                        onChange={e => setIfsc(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11))}
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-900 font-mono font-bold uppercase focus:outline-none focus:border-[#ff5353]"
                       />
                     </div>

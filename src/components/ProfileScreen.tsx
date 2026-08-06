@@ -27,9 +27,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
-  const uid = user ? (user.phone ? user.phone.slice(-8) : '14890673') : '14890673';
-  const username = user ? (user.name || 'VIPPREDICTOR') : 'VIPPREDICTOR';
-  const balance = user ? user.balance.toFixed(2) : '0.43';
+  const uid = user ? (user.phone ? user.phone.slice(-8) : 'GUEST') : 'NOT LOGGED IN';
+  const username = user ? (user.name || `Player_${user.phone.slice(-4)}`) : 'Guest Player';
+  const balance = user ? user.balance.toFixed(2) : '0.00';
 
   // Format current date time for last login string
   const formatLastLogin = () => {
@@ -221,7 +221,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       {/* 5. Auth / Switch Account Button */}
       <div className="px-3 pt-2">
         <button
-          onClick={onOpenAuth}
+          onClick={() => {
+            localStorage.removeItem('realwin_user_phone');
+            onOpenAuth();
+          }}
           className="w-full py-3 rounded-2xl border border-gray-200 bg-white text-gray-700 text-xs font-bold flex items-center justify-center gap-2 hover:bg-gray-50 transition shadow-2xs"
         >
           <LogOut className="w-4 h-4 text-[#ff5353]" />

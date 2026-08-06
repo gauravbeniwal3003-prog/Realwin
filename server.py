@@ -1,6 +1,7 @@
 import os
 import time
 import math
+import random
 import re
 import hashlib
 import json
@@ -14,7 +15,7 @@ from supabase import create_client, Client
 # 1. HARDCODED SUPABASE CREDENTIALS
 # ==========================================
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://tkvcianczzdxrjylrdyq.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRlZiI6InRrdmNpYW5jenpkeHJqeWxyZHlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTMwNjQsImV4cCI6MjEwMTI4OTA2NH0.81-XSAxkfZ1nIH4UpYKeX4ybrR3olnt0KkZ6l8vngCg")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrdmNpYW5jenpkeHJqeWxyZHlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTMwNjQsImV4cCI6MjEwMTI4OTA2NH0.81-XSAxkfZ1nIH4UpYKeX4ybrR3olnt0KkZ6l8vngCg")
 
 # Initialize Supabase Client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -156,7 +157,7 @@ def load_data_from_supabase():
             } for r in res_rounds.data]
 
         # Load Settings
-        res_set = supabase.table("system_settings").select("*").eq("id", "main").execute()
+        res_set = supabase.table("system_settings").select("*").limit(1).execute()
         if res_set.data and len(res_set.data) > 0:
             s = res_set.data[0]
             state["settings"]["upiId"] = s.get("upi_id", state["settings"]["upiId"])
@@ -552,12 +553,62 @@ import threading
 
 last_processed_py = {}
 
+def get_lowest_payout_number(round_bets):
+    if not round_bets:
+        return int(time.time() * 1000) % 10
+
+    min_payout = float('inf')
+    best_numbers = []
+
+    for candidate in range(10):
+        if candidate == 0:
+            colors = ["RED", "VIOLET"]
+        elif candidate == 5:
+            colors = ["GREEN", "VIOLET"]
+        elif candidate in [1, 3, 7, 9]:
+            colors = ["GREEN"]
+        else:
+            colors = ["RED"]
+
+        big_small = "BIG" if candidate >= 5 else "SMALL"
+        total_payout = 0.0
+
+        for bet in round_bets:
+            sel = bet.get("selection")
+            mult = 0.0
+            amt = float(bet.get("amount", 0))
+
+            if sel == "GREEN" and "GREEN" in colors:
+                mult = 1.5 if candidate == 5 else 2.0
+            elif sel == "RED" and "RED" in colors:
+                mult = 1.5 if candidate == 0 else 2.0
+            elif sel == "VIOLET" and "VIOLET" in colors:
+                mult = 4.5
+            elif sel == "BIG" and big_small == "BIG":
+                mult = 2.0
+            elif sel == "SMALL" and big_small == "SMALL":
+                mult = 2.0
+            elif sel == str(candidate):
+                mult = 9.0
+
+            total_payout += math.floor(amt * mult)
+
+        if total_payout < min_payout:
+            min_payout = total_payout
+            best_numbers = [candidate]
+        elif total_payout == min_payout:
+            best_numbers.append(candidate)
+
+    return random.choice(best_numbers)
+
 def process_python_round_result(period: str, room: str):
+    round_bets = [b for b in state["bets"] if b.get("period") == period or (b.get("room") == room and b.get("status") == "PENDING")]
+
     winning_num = state["settings"]["manualOverrideNumber"]
     if winning_num is not None and 0 <= winning_num <= 9:
         state["settings"]["manualOverrideNumber"] = None
     else:
-        winning_num = int(time.time() * 1000) % 10
+        winning_num = get_lowest_payout_number(round_bets)
 
     colors = []
     if winning_num == 0:

@@ -64,10 +64,15 @@ export const SupportPage: React.FC<SupportPageProps> = ({
   }, []);
   const [isTyping, setIsTyping] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
   };
 
   useEffect(() => {
@@ -276,7 +281,7 @@ export const SupportPage: React.FC<SupportPageProps> = ({
           </div>
 
           {/* Chat Messages Area */}
-          <div className="flex-1 p-3.5 overflow-y-auto space-y-3.5 bg-slate-50/40">
+          <div ref={chatContainerRef} className="flex-1 p-3.5 overflow-y-auto space-y-3.5 bg-slate-50/40">
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -572,8 +577,6 @@ export const SupportPage: React.FC<SupportPageProps> = ({
                 <span className="text-[10px] font-bold text-gray-400 ml-1">Support Bot Typing...</span>
               </div>
             )}
-
-            <div ref={chatEndRef} />
           </div>
 
           {/* Bottom Custom Message Input Bar */}

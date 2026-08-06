@@ -9,8 +9,8 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
-  const [phone, setPhone] = useState('9876543210');
-  const [name, setName] = useState('Player One');
+  const [phone, setPhone] = useState('');
+  const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -26,6 +26,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
 
     try {
       const user = await loginUser(phone);
+      localStorage.setItem('realwin_user_phone', user.phone);
       onSuccess(user);
       onClose();
     } catch (err: any) {
@@ -58,8 +59,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onClose }) => {
             <label className="text-xs font-semibold text-slate-400">Mobile Number</label>
             <input
               type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="tel"
               value={phone}
-              onChange={e => setPhone(e.target.value)}
+              onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
               placeholder="e.g. 9876543210"
               maxLength={10}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-100 focus:outline-none focus:border-emerald-500"
