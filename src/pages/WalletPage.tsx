@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '../components/Header';
-import { Wallet, Copy, Check, ArrowDownCircle, ArrowUpCircle, AlertCircle, Clock, CheckCircle2, Building, Smartphone } from 'lucide-react';
+import { Wallet, Copy, Check, ArrowDownCircle, ArrowUpCircle, AlertCircle, Clock, CheckCircle2, Building, Smartphone, Zap, CreditCard } from 'lucide-react';
 import { User, DepositRequest, WithdrawalRequest, SystemSettings } from '../types';
+import { createCashfreeOrder, verifyCashfreeOrder } from '../lib/api';
+
+declare global {
+  interface Window {
+    Cashfree?: any;
+  }
+}
 
 interface WalletPageProps {
   user: User | null;
@@ -42,13 +49,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     rawTab === 'WITHDRAW' ? 'WITHDRAW' : rawTab === 'HISTORY' ? 'HISTORY' : 'DEPOSIT';
   const [activeTab, setActiveTab] = useState<'DEPOSIT' | 'WITHDRAW' | 'HISTORY'>(initialTab);
 
-  useEffect(() => {
-    window.scrollTo(0, 0);
-    const tab = (searchParams.get('tab') || '').toUpperCase();
-    if (tab === 'WITHDRAW' || tab === 'HISTORY' || tab === 'DEPOSIT') {
-      setActiveTab(tab as 'DEPOSIT' | 'WITHDRAW' | 'HISTORY');
-    }
-  }, [searchParams]);
+  // Deposit Method State: 'CASHFREE' | 'MANUAL_UPI'
+  const [depositMethod, setDepositMethod] = useState<'CASHFREE' | 'MANUAL_UPI'>('CASHFREE');
 
   // Deposit State
   const [depositAmount, setDepositAmount] = useState<number>(500);
@@ -57,6 +59,112 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   const [copiedUpi, setCopiedUpi] = useState<boolean>(false);
   const [depositStatusMsg, setDepositStatusMsg] = useState<{ type: 'SUCCESS' | 'ERROR'; text: string } | null>(null);
   const [isSubmittingDeposit, setIsSubmittingDeposit] = useState<boolean>(false);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    const tab = (searchParams.get('tab') || '').toUpperCase();
+    if (tab === 'WITHDRAW' || tab === 'HISTORY' || tab === 'DEPOSIT') {
+      setActiveTab(tab as 'DEPOSIT' | 'WITHDRAW' | 'HISTORY');
+    }
+
+    // Handle Cashfree Callback Status in Query Parameters
+    const cfStatus = searchParams.get('cashfree_status');
+    const orderId = searchParams.get('order_id');
+    const amt = searchParams.get('amount');
+
+    if (cfStatus === 'SUCCESS') {
+      setDepositStatusMsg({
+        type: 'SUCCESS',
+        text: `₹${amt || ''} deposited successfully via Cashfree! Wallet balance updated.`,
+      });
+      if (onRefreshUser) onRefreshUser();
+    } else if (cfStatus === 'FAILED') {
+      setDepositStatusMsg({
+        type: 'ERROR',
+        text: 'Cashfree payment failed or was cancelled.',
+      });
+    } else if (orderId && !cfStatus) {
+      // Attempt verification if order_id is present
+      verifyPaymentOrder(orderId);
+    }
+  }, [searchParams]);
+
+  const verifyPaymentOrder = async (orderId: string) => {
+    setIsSubmittingDeposit(true);
+    try {
+      const res = await verifyCashfreeOrder(orderId);
+      if (res.success) {
+        setDepositStatusMsg({
+          type: 'SUCCESS',
+          text: `₹${res.amount || depositAmount} deposited successfully via Cashfree! Wallet updated.`,
+        });
+        if (onRefreshUser) onRefreshUser();
+      } else {
+        setDepositStatusMsg({
+          type: 'ERROR',
+          text: res.error || 'Cashfree payment pending or failed.',
+        });
+      }
+    } catch (err: any) {
+      setDepositStatusMsg({ type: 'ERROR', text: err.message || 'Verification failed' });
+    } finally {
+      setIsSubmittingDeposit(false);
+    }
+  };
+
+  const handleCashfreeCheckout = async () => {
+    if (!user) {
+      setDepositStatusMsg({ type: 'ERROR', text: 'Please log in to make a deposit' });
+      return;
+    }
+
+    const minD = settings.minDeposit || 500;
+    const maxD = settings.maxDeposit || 5000;
+
+    if (depositAmount < 500) {
+      setDepositStatusMsg({ type: 'ERROR', text: '₹100 deposit option is currently NOT AVAILABLE. Minimum deposit amount is ₹500.' });
+      return;
+    }
+
+    if (depositAmount < minD || depositAmount > maxD) {
+      setDepositStatusMsg({ type: 'ERROR', text: `Deposit amount must be between ₹${minD} and ₹${maxD.toLocaleString('en-IN')}` });
+      return;
+    }
+
+    setIsSubmittingDeposit(true);
+    setDepositStatusMsg(null);
+
+    try {
+      const order = await createCashfreeOrder({
+        userId: user.id,
+        amount: depositAmount,
+      });
+
+      if (window.Cashfree) {
+        const cashfree = window.Cashfree({ mode: 'production' });
+        cashfree.checkout({
+          paymentSessionId: order.payment_session_id,
+          redirectTarget: '_modal',
+        }).then((result: any) => {
+          if (result.error) {
+            console.error('Cashfree Checkout Error:', result.error);
+            setDepositStatusMsg({
+              type: 'ERROR',
+              text: result.error.message || 'Payment was cancelled or failed.',
+            });
+            setIsSubmittingDeposit(false);
+          } else {
+            verifyPaymentOrder(order.order_id);
+          }
+        });
+      } else {
+        verifyPaymentOrder(order.order_id);
+      }
+    } catch (err: any) {
+      setDepositStatusMsg({ type: 'ERROR', text: err.message || 'Cashfree initialization failed' });
+      setIsSubmittingDeposit(false);
+    }
+  };
 
   // Withdrawal State
   const [withdrawAmount, setWithdrawAmount] = useState<number>(500);
@@ -256,7 +364,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
         <div className="space-y-4">
           {/* DEPOSIT TAB */}
           {activeTab === 'DEPOSIT' && (
-            <form onSubmit={handleDepositSubmit} className="space-y-4">
+            <div className="space-y-4">
               {depositStatusMsg && (
                 <div
                   className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center gap-2.5 ${
@@ -274,42 +382,45 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 </div>
               )}
 
-              {/* QR & UPI ID Box */}
-              <div className="bg-white p-4 sm:p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4">
-                <div className="flex flex-col items-center gap-3 text-center">
-                  <span className="text-xs font-black text-[#18b660] uppercase tracking-wider block">
-                    Official Payment UPI QR Code
+              {/* Deposit Method Selector */}
+              <div className="bg-white p-2 rounded-3xl border border-gray-100 shadow-sm flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDepositMethod('CASHFREE');
+                    setDepositStatusMsg(null);
+                  }}
+                  className={`flex-1 py-3 px-2 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 transition ${
+                    depositMethod === 'CASHFREE'
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                      : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+                  <span>Cashfree Gateway</span>
+                  <span className="text-[9px] bg-amber-400 text-slate-900 font-extrabold px-1.5 py-0.2 rounded-full uppercase tracking-tighter">
+                    INSTANT
                   </span>
-                  <div className="bg-white p-3 rounded-2xl shadow-md border border-gray-200">
-                    <img
-                      src={settings.qrCodeUrl}
-                      alt="UPI QR"
-                      className="w-40 h-40 sm:w-48 sm:h-48 object-contain"
-                    />
-                  </div>
+                </button>
 
-                  <div className="w-full space-y-2">
-                    <span className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider block">
-                      Pay Directly to UPI ID
-                    </span>
-                    <div className="flex items-center justify-between gap-2 bg-gray-50 px-3.5 py-2.5 rounded-2xl border border-gray-200">
-                      <span className="font-mono text-sm font-black text-gray-900 select-all">
-                        {settings.upiId}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleCopyUpi}
-                        className="px-3 py-1.5 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold transition flex items-center gap-1"
-                      >
-                        {copiedUpi ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                        <span>{copiedUpi ? 'Copied' : 'Copy'}</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDepositMethod('MANUAL_UPI');
+                    setDepositStatusMsg(null);
+                  }}
+                  className={`flex-1 py-3 px-2 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 transition ${
+                    depositMethod === 'MANUAL_UPI'
+                      ? 'bg-gray-800 text-white shadow-md'
+                      : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span>Manual UPI / UTR</span>
+                </button>
               </div>
 
-              {/* Quick Amount Selector */}
+              {/* Quick Amount Selector (Shared by both methods) */}
               <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-3">
                 <label className="text-xs font-black text-gray-800 uppercase tracking-wider flex justify-between items-center">
                   <span>Select Deposit Amount (₹)</span>
@@ -372,49 +483,122 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 </div>
               </div>
 
-              {/* 12-Digit UTR Form */}
-              <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-2">
-                <label className="text-xs font-black text-gray-800 uppercase tracking-wider flex items-center justify-between">
-                  <span>12-Digit UTR / Ref Transaction ID</span>
-                  <span className="text-[10px] text-[#ff5353]">Required</span>
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="e.g. 421598201934"
-                  maxLength={12}
-                  value={utrNumber}
-                  onChange={e => setUtrNumber(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm font-mono font-bold text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#18b660]"
-                />
-                <p className="text-[10px] text-gray-500 font-medium">
-                  Copy the 12-digit UTR/Ref ID from GPay, PhonePe, or Paytm after completing payment.
-                </p>
-              </div>
+              {/* CASHFREE PAYMENT GATEWAY METHOD */}
+              {depositMethod === 'CASHFREE' && (
+                <div className="space-y-4">
+                  <div className="bg-gradient-to-br from-emerald-900 via-slate-900 to-teal-950 p-5 rounded-3xl text-white shadow-lg space-y-4 border border-emerald-500/20">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center border border-emerald-400/30">
+                          <Zap className="w-4 h-4 text-emerald-400 fill-emerald-400" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-emerald-300 uppercase tracking-wider">
+                            Cashfree Payment Gateway
+                          </h4>
+                          <p className="text-[10px] text-emerald-100/70 font-medium">
+                            Auto-Verified & Instant Wallet Credit
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-black text-amber-300 bg-amber-400/20 px-2 py-0.5 rounded-full border border-amber-400/30">
+                        100% SECURE
+                      </span>
+                    </div>
 
-              {/* Instant Simulated Checkbox */}
-              <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-3xl flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-black text-amber-900 block">Simulated Demo Credit</span>
-                  <span className="text-[10px] text-amber-700 font-medium">Instantly add test balance for preview</span>
+                    <div className="bg-slate-800/80 p-3.5 rounded-2xl border border-slate-700 space-y-2 text-xs text-slate-200">
+                      <div className="flex items-center justify-between font-bold">
+                        <span>Supported Methods:</span>
+                        <span className="text-emerald-400 font-extrabold text-[11px]">UPI, GPay, PhonePe, Paytm, Cards</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>Processing Time:</span>
+                        <span className="text-amber-300 font-bold">Instant (0 Seconds)</span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleCashfreeCheckout}
+                      disabled={isSubmittingDeposit}
+                      className="w-full py-4 bg-gradient-to-r from-[#18b660] to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-black rounded-2xl text-sm shadow-xl transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>{isSubmittingDeposit ? 'Opening Gateway...' : `Pay via Cashfree (₹${depositAmount})`}</span>
+                    </button>
+                  </div>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={isInstantDemo}
-                  onChange={e => setIsInstantDemo(e.target.checked)}
-                  className="w-5 h-5 accent-[#18b660] cursor-pointer"
-                />
-              </div>
+              )}
 
-              <button
-                type="submit"
-                disabled={isSubmittingDeposit}
-                className="w-full py-4 bg-[#18b660] hover:bg-emerald-600 text-white font-black rounded-2xl text-sm shadow-md transition active:scale-95 disabled:opacity-50"
-              >
-                {isSubmittingDeposit ? 'Submitting Deposit...' : `Confirm Deposit (₹${depositAmount})`}
-              </button>
-            </form>
+              {/* MANUAL UPI / UTR METHOD */}
+              {depositMethod === 'MANUAL_UPI' && (
+                <form onSubmit={handleDepositSubmit} className="space-y-4">
+                  {/* QR & UPI ID Box */}
+                  <div className="bg-white p-4 sm:p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+                    <div className="flex flex-col items-center gap-3 text-center">
+                      <span className="text-xs font-black text-[#18b660] uppercase tracking-wider block">
+                        Official Payment UPI QR Code
+                      </span>
+                      <div className="bg-white p-3 rounded-2xl shadow-md border border-gray-200">
+                        <img
+                          src={settings.qrCodeUrl}
+                          alt="UPI QR"
+                          className="w-40 h-40 sm:w-48 sm:h-48 object-contain"
+                        />
+                      </div>
+
+                      <div className="w-full space-y-2">
+                        <span className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider block">
+                          Pay Directly to UPI ID
+                        </span>
+                        <div className="flex items-center justify-between gap-2 bg-gray-50 px-3.5 py-2.5 rounded-2xl border border-gray-200">
+                          <span className="font-mono text-sm font-black text-gray-900 select-all">
+                            {settings.upiId}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleCopyUpi}
+                            className="px-3 py-1.5 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold transition flex items-center gap-1"
+                          >
+                            {copiedUpi ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                            <span>{copiedUpi ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 12-Digit UTR Form */}
+                  <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-2">
+                    <label className="text-xs font-black text-gray-800 uppercase tracking-wider flex items-center justify-between">
+                      <span>12-Digit UTR / Ref Transaction ID</span>
+                      <span className="text-[10px] text-[#ff5353]">Required</span>
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="e.g. 421598201934"
+                      maxLength={12}
+                      value={utrNumber}
+                      onChange={e => setUtrNumber(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm font-mono font-bold text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#18b660]"
+                    />
+                    <p className="text-[10px] text-gray-500 font-medium">
+                      Copy the 12-digit UTR/Ref ID from GPay, PhonePe, or Paytm after completing payment.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmittingDeposit}
+                    className="w-full py-4 bg-[#18b660] hover:bg-emerald-600 text-white font-black rounded-2xl text-sm shadow-md transition active:scale-95 disabled:opacity-50"
+                  >
+                    {isSubmittingDeposit ? 'Submitting Deposit...' : `Submit Manual UTR Deposit (₹${depositAmount})`}
+                  </button>
+                </form>
+              )}
+            </div>
           )}
 
           {/* WITHDRAW TAB */}
@@ -428,11 +612,8 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                       Deposit Required Before First Withdrawal
                     </strong>
                     <p className="text-[11px] font-medium text-rose-900">
-                      You are playing with trial bonus funds. To activate withdrawal requests, you need to make a minimum deposit of at least ₹100.
+                      You are playing with trial bonus funds. To activate withdrawal requests, you need to make a deposit of at least ₹500.
                     </p>
-                    <div className="text-[10px] bg-rose-100/80 text-rose-900 font-bold p-2 rounded-xl border border-rose-200">
-                      * Note: ₹100 deposit option is currently unavailable. Minimum available deposit option is ₹500.
-                    </div>
                   </div>
                 </div>
               )}

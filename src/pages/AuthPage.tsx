@@ -16,7 +16,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
   const [activeTab, setActiveTab] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
 
   // Form Fields
-  const [phone, setPhone] = useState('9876543210');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
@@ -77,31 +77,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
     }
   };
 
-  const handleQuickDemo = async () => {
-    setIsSubmitting(true);
-    try {
-      const user = await loginUser('9876543210', '123456');
-      onSuccess(user);
-      navigate('/game');
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-[#f7f8ff] text-gray-900 flex flex-col items-center justify-between p-3 sm:p-4 font-sans select-none pb-6">
       {/* Top Header Bar */}
-      <div className="w-full max-w-md flex items-center justify-between pt-2 pb-3">
+      <div className="w-full max-w-md flex items-center justify-center pt-2 pb-3">
         <RealWinLogo size="md" lightMode={true} />
-        <button
-          onClick={handleQuickDemo}
-          className="px-3.5 py-1.5 bg-white hover:bg-gray-50 text-amber-600 font-extrabold text-xs rounded-2xl border border-amber-200 shadow-xs flex items-center gap-1.5 transition active:scale-95"
-        >
-          <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-          <span>Demo Play</span>
-        </button>
       </div>
 
       {/* Main Container Card */}
@@ -110,7 +90,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
         <div className="bg-gradient-to-r from-[#ff5652] via-[#ff4340] to-[#ff2a2a] text-white p-4 sm:p-5 rounded-2xl shadow-md space-y-1.5 text-center">
           <div className="inline-flex items-center gap-1 px-3 py-0.5 rounded-full bg-white/20 border border-white/30 text-amber-200 text-[10px] font-black uppercase tracking-wider">
             <Gift className="w-3 h-3 text-amber-200" />
-            <span>₹100 Free Trial Bonus</span>
+            <span>₹1 Free Trial Bonus</span>
           </div>
           <h1 className="font-heading font-black text-2xl text-white tracking-tight">
             Predict & Win Real Cash

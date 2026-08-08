@@ -316,20 +316,6 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                 </p>
               </div>
 
-              {/* Demo Mode Toggle */}
-              <div className="bg-amber-50 border border-amber-200 p-3 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-black text-amber-900 block">Instant Demo Credit (Testing)</span>
-                  <span className="text-[10px] text-amber-700 font-medium">Instantly add funds for preview testing</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={isInstantDemo}
-                  onChange={e => setIsInstantDemo(e.target.checked)}
-                  className="w-4 h-4 accent-[#18b660] cursor-pointer"
-                />
-              </div>
-
               {/* Submit Button */}
               <button
                 type="submit"

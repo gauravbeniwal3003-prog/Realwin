@@ -36,7 +36,7 @@ import {
 } from './src/lib/serverSupabase';
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Security: Enable trust proxy for reverse proxy environments (e.g. Cloud Run, Nginx)
 app.set('trust proxy', 1);
@@ -231,12 +231,12 @@ initSupabaseData();
 // Helper to save state
 function saveState() {
   try {
-    // Keep max 1000 rounds and max 3000 bets in memory/file
-    if (state.rounds.length > 1000) {
-      state.rounds = state.rounds.slice(0, 1000);
+    // Keep max 50 rounds and max 100 bets in file to keep file size lightweight
+    if (state.rounds.length > 50) {
+      state.rounds = state.rounds.slice(0, 50);
     }
-    if (state.bets.length > 3000) {
-      state.bets = state.bets.slice(0, 3000);
+    if (state.bets.length > 100) {
+      state.bets = state.bets.slice(0, 100);
     }
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
   } catch (err) {
@@ -550,12 +550,12 @@ app.post('/api/auth/login', (req, res) => {
 
   let user = state.users.find(u => u.phone === cleanPhone);
   if (!user) {
-    // Auto register for smooth experience with ₹100 trial bonus
+    // Auto register with ₹1 trial bonus
     user = {
       id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       phone: cleanPhone,
       name: `Player_${cleanPhone.slice(-4)}`,
-      balance: 100, // ₹100 trial bonus
+      balance: 1, // ₹1 trial bonus
       isAdmin: cleanPhone === '9999999999',
       createdAt: Date.now(),
     };
@@ -598,7 +598,7 @@ app.post('/api/auth/register', (req, res) => {
     id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
     phone: cleanPhone,
     name: cleanName || `Player_${cleanPhone.slice(-4)}`,
-    balance: 100, // ₹100 trial welcome bonus
+    balance: 1, // ₹1 trial welcome bonus
     isAdmin: cleanPhone === '9999999999',
     createdAt: Date.now(),
     referredBy: referrerId,
@@ -747,6 +747,216 @@ app.post('/api/wallet/deposit', (req, res) => {
   });
 });
 
+// --- CASHFREE PAYMENT GATEWAY INTEGRATION ---
+const CASHFREE_APP_ID = process.env.CASHFREE_APP_ID || '';
+const CASHFREE_SECRET_KEY = process.env.CASHFREE_SECRET_KEY || '';
+const CASHFREE_API_URL = 'https://api.cashfree.com/pg';
+
+// Create Cashfree Order
+app.post('/api/cashfree/create-order', async (req, res) => {
+  try {
+    const { userId, amount } = req.body;
+    const numAmount = Number(amount);
+    const minDep = state.settings.minDeposit || 500;
+    const maxDep = state.settings.maxDeposit || 5000;
+
+    if (!userId || isNaN(numAmount) || numAmount < minDep || numAmount > maxDep) {
+      return res.status(400).json({ error: `Deposit amount must be between ₹${minDep} and ₹${maxDep}` });
+    }
+
+    const user = state.users.find(u => u.id === userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const orderId = `CF_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.get('host');
+    const returnUrl = `${protocol}://${host}/api/cashfree/callback?order_id={order_id}`;
+
+    const cleanPhone = (user.phone && user.phone.length === 10) ? user.phone : '9999999999';
+
+    const payload = {
+      order_id: orderId,
+      order_amount: numAmount,
+      order_currency: 'INR',
+      customer_details: {
+        customer_id: user.id,
+        customer_name: user.name || `Player_${cleanPhone.slice(-4)}`,
+        customer_email: `${cleanPhone}@realwin.app`,
+        customer_phone: cleanPhone,
+      },
+      order_meta: {
+        return_url: returnUrl,
+      },
+    };
+
+    const response = await fetch(`${CASHFREE_API_URL}/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-client-id': CASHFREE_APP_ID,
+        'x-client-secret': CASHFREE_SECRET_KEY,
+        'x-api-version': '2023-08-01',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('Cashfree order creation error:', data);
+      return res.status(response.status || 500).json({
+        error: data.message || data.error_description || 'Failed to initialize Cashfree payment order',
+      });
+    }
+
+    // Record pending Cashfree deposit
+    const deposit: DepositRequest = {
+      id: orderId,
+      userId: user.id,
+      userName: user.name,
+      userPhone: user.phone,
+      amount: numAmount,
+      utr: orderId,
+      status: 'PENDING',
+      paymentMethod: 'CASHFREE' as any,
+      createdAt: Date.now(),
+    };
+
+    state.deposits.unshift(deposit);
+    saveState();
+    saveDepositToSupabase(deposit);
+
+    res.json({
+      success: true,
+      order_id: data.order_id || orderId,
+      payment_session_id: data.payment_session_id,
+      order_amount: data.order_amount,
+    });
+  } catch (err: any) {
+    console.error('Error creating Cashfree order:', err);
+    res.status(500).json({ error: err.message || 'Server error creating Cashfree order' });
+  }
+});
+
+// Helper: Verify and Process Cashfree Payment Status
+async function verifyAndProcessCashfreeOrder(orderId: string) {
+  const response = await fetch(`${CASHFREE_API_URL}/orders/${orderId}`, {
+    method: 'GET',
+    headers: {
+      'x-client-id': CASHFREE_APP_ID,
+      'x-client-secret': CASHFREE_SECRET_KEY,
+      'x-api-version': '2023-08-01',
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || 'Failed to fetch order status from Cashfree');
+  }
+
+  const orderStatus = data.order_status; // "PAID", "ACTIVE", "EXPIRED", "TERMINATED"
+  let deposit = state.deposits.find(d => d.id === orderId || d.utr === orderId);
+
+  if (orderStatus === 'PAID') {
+    const amountPaid = Number(data.order_amount || 0);
+
+    if (deposit) {
+      if (deposit.status !== 'APPROVED') {
+        deposit.status = 'APPROVED';
+        deposit.processedAt = Date.now();
+
+        const user = state.users.find(u => u.id === deposit!.userId || u.phone === deposit!.userPhone);
+        if (user) {
+          user.balance += deposit.amount;
+          saveUserToSupabase(user);
+        }
+        saveState();
+        saveDepositToSupabase(deposit);
+      }
+      const user = state.users.find(u => u.id === deposit!.userId || u.phone === deposit!.userPhone);
+      return { success: true, status: 'PAID', amount: deposit.amount, deposit, updatedBalance: user?.balance };
+    } else {
+      // Create deposit on the fly if not found in state
+      const userPhone = data.customer_details?.customer_phone || '';
+      const user = state.users.find(u => u.phone === userPhone || u.id === data.customer_details?.customer_id);
+
+      const newDep: DepositRequest = {
+        id: orderId,
+        userId: user ? user.id : (data.customer_details?.customer_id || 'guest'),
+        userName: user ? user.name : (data.customer_details?.customer_name || 'Player'),
+        userPhone: user ? user.phone : userPhone,
+        amount: amountPaid,
+        utr: orderId,
+        status: 'APPROVED',
+        paymentMethod: 'CASHFREE' as any,
+        createdAt: Date.now(),
+        processedAt: Date.now(),
+      };
+
+      if (user) {
+        user.balance += amountPaid;
+        saveUserToSupabase(user);
+      }
+      state.deposits.unshift(newDep);
+      saveState();
+      saveDepositToSupabase(newDep);
+
+      return { success: true, status: 'PAID', amount: amountPaid, deposit: newDep, updatedBalance: user?.balance };
+    }
+  } else if (orderStatus === 'ACTIVE') {
+    return { success: false, status: 'ACTIVE', pending: true, message: 'Payment is pending user completion' };
+  } else {
+    if (deposit && deposit.status === 'PENDING') {
+      deposit.status = 'REJECTED';
+      deposit.rejectionReason = `Cashfree order status: ${orderStatus}`;
+      saveState();
+      saveDepositToSupabase(deposit);
+    }
+    return { success: false, status: orderStatus, error: `Payment ${String(orderStatus).toLowerCase()}` };
+  }
+}
+
+// Verify Cashfree Order Endpoint
+app.get('/api/cashfree/verify/:orderId', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const result = await verifyAndProcessCashfreeOrder(orderId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to verify Cashfree payment' });
+  }
+});
+
+app.post('/api/cashfree/verify', async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    if (!orderId) return res.status(400).json({ error: 'Order ID is required' });
+    const result = await verifyAndProcessCashfreeOrder(orderId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to verify Cashfree payment' });
+  }
+});
+
+// Cashfree Return URL Callback
+app.get('/api/cashfree/callback', async (req, res) => {
+  try {
+    const orderId = (req.query.order_id as string) || '';
+    if (orderId) {
+      const result = await verifyAndProcessCashfreeOrder(orderId);
+      if (result.success) {
+        return res.redirect(`/wallet?tab=DEPOSIT&cashfree_status=SUCCESS&order_id=${orderId}&amount=${result.amount}`);
+      }
+    }
+    return res.redirect(`/wallet?tab=DEPOSIT&cashfree_status=FAILED&order_id=${orderId}`);
+  } catch (err) {
+    console.error('Cashfree callback error:', err);
+    return res.redirect('/wallet?tab=DEPOSIT&cashfree_status=FAILED');
+  }
+});
+
 // Withdrawal Request
 app.post('/api/wallet/withdraw', (req, res) => {
   const { userId, amount, type, upiId, bankDetails } = req.body;
@@ -838,7 +1048,7 @@ interface RateLimitRecord {
 }
 const adminLoginAttempts = new Map<string, RateLimitRecord>();
 
-const ADMIN_ACCESS_KEY = process.env.ADMIN_KEY || 'gaurav@2026#2008';
+const ADMIN_ACCESS_KEY = 'gaurav@2026#2008';
 
 // --- ADMIN ROUTES ---
 

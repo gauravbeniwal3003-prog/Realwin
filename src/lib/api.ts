@@ -96,6 +96,38 @@ export async function submitDeposit(params: {
   return data;
 }
 
+export async function createCashfreeOrder(params: {
+  userId: string;
+  amount: number;
+}): Promise<{ success: boolean; order_id: string; payment_session_id: string; order_amount: number }> {
+  const res = await fetch(`${BASE_URL}/api/cashfree/create-order`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to create Cashfree payment order');
+  return data;
+}
+
+export async function verifyCashfreeOrder(orderId: string): Promise<{
+  success: boolean;
+  status: string;
+  amount?: number;
+  updatedBalance?: number;
+  error?: string;
+  message?: string;
+}> {
+  const res = await fetch(`${BASE_URL}/api/cashfree/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to verify Cashfree payment');
+  return data;
+}
+
 export async function submitWithdrawal(params: {
   userId: string;
   amount: number;
