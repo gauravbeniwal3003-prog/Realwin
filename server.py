@@ -3,15 +3,14 @@ import subprocess
 import sys
 
 if __name__ == "__main__":
-    # Ensure Node modules are installed
-    if not os.path.exists("node_modules"):
-        print("==> Installing Node dependencies (npm install)...")
-        subprocess.run(["npm", "install"], check=True)
-
-    # Ensure project is compiled
+    sys.stdout.flush()
+    # Fallback if dist/server.cjs was not generated during build phase
     if not os.path.exists("dist/server.cjs"):
-        print("==> Compiling application (npm run build)...")
+        print("==> [STARTUP FALLBACK] Compiling Node application...")
+        sys.stdout.flush()
+        subprocess.run(["npm", "install"], check=True)
         subprocess.run(["npm", "run", "build"], check=True)
 
-    print("==> Starting Node server (npm start)...")
-    os.execvp("npm", ["npm", "start"])
+    print("==> [STARTUP] Launching Node.js application (node dist/server.cjs)...")
+    sys.stdout.flush()
+    os.execvp("node", ["node", "dist/server.cjs"])

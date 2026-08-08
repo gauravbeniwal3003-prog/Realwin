@@ -1,1 +1,1 @@
-# Node.js project compatibility marker for Render
+-e .
