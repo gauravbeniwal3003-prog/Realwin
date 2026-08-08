@@ -11,16 +11,31 @@ import {
 
 const BASE_URL = '';
 
+async function handleJsonResponse(res: Response, defaultError: string) {
+  const text = await res.text();
+  let data: any = {};
+  try {
+    data = JSON.parse(text);
+  } catch {
+    if (!res.ok) {
+      throw new Error(text || `Server Error (${res.status})`);
+    }
+    throw new Error('Invalid JSON response from server');
+  }
+  if (!res.ok) {
+    throw new Error(data.error || data.message || defaultError);
+  }
+  return data;
+}
+
 export async function fetchGameState(room = 'WINGO_30S'): Promise<ServerGameState> {
   const res = await fetch(`${BASE_URL}/api/game/state?room=${room}`);
-  if (!res.ok) throw new Error('Failed to fetch game state');
-  return res.json();
+  return handleJsonResponse(res, 'Failed to fetch game state');
 }
 
 export async function fetchGameHistory(page = 1, limit = 20, room = 'WINGO_30S'): Promise<{ rounds: GameRound[]; total: number }> {
   const res = await fetch(`${BASE_URL}/api/game/history?page=${page}&limit=${limit}&room=${room}`);
-  if (!res.ok) throw new Error('Failed to fetch game history');
-  return res.json();
+  return handleJsonResponse(res, 'Failed to fetch game history');
 }
 
 export async function loginUser(phone: string, password?: string): Promise<User> {
@@ -29,8 +44,7 @@ export async function loginUser(phone: string, password?: string): Promise<User>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone, password }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Login failed');
+  const data = await handleJsonResponse(res, 'Login failed');
   return data.user;
 }
 
@@ -45,15 +59,13 @@ export async function registerUser(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Registration failed');
+  const data = await handleJsonResponse(res, 'Registration failed');
   return data.user;
 }
 
 export async function fetchUser(userId: string): Promise<User> {
   const res = await fetch(`${BASE_URL}/api/auth/user/${userId}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to fetch user');
+  const data = await handleJsonResponse(res, 'Failed to fetch user');
   return data.user;
 }
 
@@ -68,15 +80,12 @@ export async function placeBet(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to place bet');
-  return data;
+  return handleJsonResponse(res, 'Failed to place bet');
 }
 
 export async function fetchMyBets(userId: string): Promise<Bet[]> {
   const res = await fetch(`${BASE_URL}/api/game/my-bets/${userId}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to fetch user bets');
+  const data = await handleJsonResponse(res, 'Failed to fetch user bets');
   return data.bets;
 }
 
@@ -91,9 +100,7 @@ export async function submitDeposit(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Deposit failed');
-  return data;
+  return handleJsonResponse(res, 'Deposit failed');
 }
 
 export async function createCashfreeOrder(params: {
