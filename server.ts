@@ -561,81 +561,158 @@ app.get('/api/game/history', (req, res) => {
 });
 
 // Auth Endpoints
-app.post('/api/auth/login', (req, res) => {
-  const cleanPhone = sanitizePhone(req.body.phone);
-  if (!cleanPhone || cleanPhone.length < 10) {
-    return res.status(400).json({ error: 'Valid mobile number required' });
-  }
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const cleanPhone = sanitizePhone(req.body.phone);
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return res.status(400).json({ error: 'Valid mobile number required' });
+    }
 
-  let user = state.users.find(u => u.phone === cleanPhone);
-  if (!user) {
-    // Auto register with ₹1 trial bonus
-    user = {
+    let user = state.users.find(u => u.phone === cleanPhone);
+
+    if (!user) {
+      try {
+        const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
+        if (data && !error) {
+          user = {
+            id: data.id,
+            phone: data.phone,
+            name: data.name,
+            balance: Number(data.balance),
+            isAdmin: Boolean(data.is_admin),
+            createdAt: Number(data.created_at || Date.now()),
+            referredBy: data.referred_by || undefined,
+            referralEarnings: Number(data.referral_earnings || 0),
+          };
+          state.users.push(user);
+        }
+      } catch (err) {
+        console.warn('Supabase lookup warning on login:', err);
+      }
+    }
+
+    if (!user) {
+      // Auto register with signup bonus
+      user = {
+        id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        phone: cleanPhone,
+        name: `Player_${cleanPhone.slice(-4)}`,
+        balance: state.settings.signupBonus ?? 20,
+        isAdmin: cleanPhone === '9999999999',
+        createdAt: Date.now(),
+        referralEarnings: 0,
+      };
+      state.users.push(user);
+      saveState();
+      saveUserToSupabase(user);
+    }
+
+    res.json({ user });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Login failed' });
+  }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const cleanPhone = sanitizePhone(req.body.phone);
+    const cleanName = sanitizeInput(req.body.name);
+    const refCode = req.body.referralCode ? String(req.body.referralCode).trim() : '';
+
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return res.status(400).json({ error: 'Valid 10-digit mobile number is required' });
+    }
+
+    let existing = state.users.find(u => u.phone === cleanPhone);
+    if (!existing) {
+      try {
+        const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
+        if (data && !error) {
+          existing = {
+            id: data.id,
+            phone: data.phone,
+            name: data.name,
+            balance: Number(data.balance),
+            isAdmin: Boolean(data.is_admin),
+            createdAt: Number(data.created_at || Date.now()),
+            referredBy: data.referred_by || undefined,
+            referralEarnings: Number(data.referral_earnings || 0),
+          };
+          state.users.push(existing);
+        }
+      } catch (err) {
+        console.warn('Supabase lookup on register warning:', err);
+      }
+    }
+
+    if (existing) {
+      return res.json({ user: existing });
+    }
+
+    // Find referrer if referral code provided
+    let referrerId: string | undefined = undefined;
+    if (refCode) {
+      const referrer = state.users.find(u => 
+        u.phone === refCode || 
+        u.phone.endsWith(refCode) || 
+        u.id === refCode
+      );
+      if (referrer) {
+        referrerId = referrer.id;
+      }
+    }
+
+    const newUser: User = {
       id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       phone: cleanPhone,
-      name: `Player_${cleanPhone.slice(-4)}`,
-      balance: 1, // ₹1 trial bonus
+      name: cleanName || `Player_${cleanPhone.slice(-4)}`,
+      balance: state.settings.signupBonus ?? 20,
       isAdmin: cleanPhone === '9999999999',
       createdAt: Date.now(),
+      referredBy: referrerId,
+      referralEarnings: 0,
     };
-    state.users.push(user);
+
+    state.users.push(newUser);
     saveState();
-    saveUserToSupabase(user);
+    saveUserToSupabase(newUser);
+    res.json({ user: newUser });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Registration failed' });
   }
-
-  res.json({ user });
 });
 
-app.post('/api/auth/register', (req, res) => {
-  const cleanPhone = sanitizePhone(req.body.phone);
-  const cleanName = sanitizeInput(req.body.name);
-  const refCode = req.body.referralCode ? String(req.body.referralCode).trim() : '';
-
-  if (!cleanPhone || cleanPhone.length < 10) {
-    return res.status(400).json({ error: 'Valid 10-digit mobile number is required' });
-  }
-
-  let existing = state.users.find(u => u.phone === cleanPhone);
-  if (existing) {
-    return res.json({ user: existing });
-  }
-
-  // Find referrer if referral code provided
-  let referrerId: string | undefined = undefined;
-  if (refCode) {
-    const referrer = state.users.find(u => 
-      u.phone === refCode || 
-      u.phone.endsWith(refCode) || 
-      u.id === refCode
-    );
-    if (referrer) {
-      referrerId = referrer.id;
+app.get('/api/auth/user/:id', async (req, res) => {
+  try {
+    let user = state.users.find(u => u.id === req.params.id);
+    if (!user) {
+      try {
+        const { data, error } = await supabase.from('users').select('*').eq('id', req.params.id).maybeSingle();
+        if (data && !error) {
+          user = {
+            id: data.id,
+            phone: data.phone,
+            name: data.name,
+            balance: Number(data.balance),
+            isAdmin: Boolean(data.is_admin),
+            createdAt: Number(data.created_at || Date.now()),
+            referredBy: data.referred_by || undefined,
+            referralEarnings: Number(data.referral_earnings || 0),
+          };
+          state.users.push(user);
+        }
+      } catch (err) {
+        console.warn('Supabase lookup on fetch user warning:', err);
+      }
     }
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ user });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to fetch user' });
   }
-
-  const newUser: User = {
-    id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-    phone: cleanPhone,
-    name: cleanName || `Player_${cleanPhone.slice(-4)}`,
-    balance: 1, // ₹1 trial welcome bonus
-    isAdmin: cleanPhone === '9999999999',
-    createdAt: Date.now(),
-    referredBy: referrerId,
-    referralEarnings: 0,
-  };
-
-  state.users.push(newUser);
-  saveState();
-  saveUserToSupabase(newUser);
-  res.json({ user: newUser });
-});
-
-app.get('/api/auth/user/:id', (req, res) => {
-  const user = state.users.find(u => u.id === req.params.id);
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-  res.json({ user });
 });
 
 // Place Bet (Server-authoritative clock lock)

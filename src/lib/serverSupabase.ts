@@ -30,6 +30,8 @@ export async function loadUsersFromSupabase(): Promise<User[]> {
       balance: Number(u.balance),
       isAdmin: Boolean(u.is_admin),
       createdAt: Number(u.created_at || Date.now()),
+      referredBy: u.referred_by || undefined,
+      referralEarnings: Number(u.referral_earnings || 0),
     }));
   } catch (err) {
     console.error('Error loading users from Supabase:', err);
@@ -39,14 +41,24 @@ export async function loadUsersFromSupabase(): Promise<User[]> {
 
 export async function saveUserToSupabase(user: User): Promise<void> {
   try {
-    await supabase.from('users').upsert({
+    const payload = {
       id: user.id,
       phone: user.phone,
       name: user.name,
       balance: user.balance,
       is_admin: user.isAdmin,
       created_at: user.createdAt,
-    });
+      referred_by: user.referredBy || null,
+      referral_earnings: user.referralEarnings || 0,
+    };
+
+    let { error } = await supabase.from('users').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      let fallbackRes = await supabase.from('users').upsert(payload);
+      if (fallbackRes.error) {
+        console.warn('⚠️ Supabase saveUser notice:', fallbackRes.error.message);
+      }
+    }
   } catch (err) {
     console.error('Error saving user to Supabase:', err);
   }
