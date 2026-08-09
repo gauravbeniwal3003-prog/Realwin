@@ -90,6 +90,14 @@ app.use('/api/deposit', transactionLimiter);
 app.use('/api/withdraw', transactionLimiter);
 app.use('/api/bet', transactionLimiter);
 
+// Handle path normalization for serverless / Vercel rewrites
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/api') && (req.url.startsWith('/auth') || req.url.startsWith('/game') || req.url.startsWith('/wallet') || req.url.startsWith('/admin') || req.url.startsWith('/cashfree') || req.url.startsWith('/health'))) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 // Auto-Process Game Rounds on Every API Request (Guarantees timer & payouts on serverless/Vercel)
 app.use('/api', (req, res, next) => {
   try {
@@ -118,10 +126,21 @@ function sanitizePhone(phone: any): string {
   return phone.replace(/[^\d]/g, '').slice(0, 15);
 }
 
-// Ensure data directory exists
-const DATA_DIR = path.join(process.cwd(), 'data');
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// Ensure data directory exists safely (handling read-only filesystems like Vercel serverless)
+let DATA_DIR = path.join(process.cwd(), 'data');
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (err) {
+  DATA_DIR = path.join('/tmp', 'data');
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+  } catch (_) {
+    // Ignore if /tmp is constrained
+  }
 }
 
 const DATA_FILE = path.join(DATA_DIR, 'app-state.json');
@@ -1622,6 +1641,21 @@ app.post('/api/admin/settings', (req, res) => {
   saveState();
   saveSystemSettingsToSupabase(state.settings);
   res.json({ success: true, settings: state.settings });
+});
+
+// --- API 404 & ERROR HANDLING MIDDLEWARE ---
+// Explicit 404 handler for unmatched API routes to prevent falling through to SPA index.html
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API route ${req.method} ${req.path} not found` });
+});
+
+// Global Express error handler to guarantee JSON responses on exceptions
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('[EXPRESS ERROR]:', err);
+  const status = typeof err.status === 'number' ? err.status : 500;
+  res.status(status).json({
+    error: err.message || 'Internal Server Error',
+  });
 });
 
 // --- VITE MIDDLEWARE SETUP ---

@@ -12,16 +12,24 @@ import {
 const BASE_URL = '';
 
 async function handleJsonResponse(res: Response, defaultError: string) {
+  const contentType = res.headers.get('content-type') || '';
   const text = await res.text();
   let data: any = {};
-  try {
-    data = JSON.parse(text);
-  } catch {
-    if (!res.ok) {
-      throw new Error(text || `Server Error (${res.status})`);
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (!res.ok) {
+        throw new Error(text || `Server Error (${res.status})`);
+      }
+      if (contentType.includes('text/html') || text.trim().startsWith('<')) {
+        throw new Error(`Route or API endpoint not found (${res.status})`);
+      }
+      throw new Error(`Invalid JSON response from server (${res.status})`);
     }
-    throw new Error('Invalid JSON response from server');
   }
+
   if (!res.ok) {
     throw new Error(data.error || data.message || defaultError);
   }
@@ -112,9 +120,7 @@ export async function createCashfreeOrder(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to create Cashfree payment order');
-  return data;
+  return handleJsonResponse(res, 'Failed to create Cashfree payment order');
 }
 
 export async function verifyCashfreeOrder(orderId: string): Promise<{
@@ -130,9 +136,7 @@ export async function verifyCashfreeOrder(orderId: string): Promise<{
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ orderId }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to verify Cashfree payment');
-  return data;
+  return handleJsonResponse(res, 'Failed to verify Cashfree payment');
 }
 
 export async function submitWithdrawal(params: {
@@ -152,9 +156,7 @@ export async function submitWithdrawal(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Withdrawal request failed');
-  return data;
+  return handleJsonResponse(res, 'Withdrawal request failed');
 }
 
 export async function fetchTransactions(userId: string): Promise<{
@@ -163,9 +165,7 @@ export async function fetchTransactions(userId: string): Promise<{
   settings: SystemSettings;
 }> {
   const res = await fetch(`${BASE_URL}/api/wallet/transactions/${userId}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to fetch transactions');
-  return data;
+  return handleJsonResponse(res, 'Failed to fetch transactions');
 }
 
 // Admin APIs
@@ -175,30 +175,24 @@ export async function adminLogin(pin: string): Promise<boolean> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pin }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Invalid Admin PIN');
+  const data = await handleJsonResponse(res, 'Invalid Admin PIN');
   return data.success;
 }
 
 export async function fetchAdminStats(): Promise<AdminStats> {
   const res = await fetch(`${BASE_URL}/api/admin/stats`);
-  const data = await res.json();
-  if (!res.ok) throw new Error('Failed to fetch admin stats');
-  return data;
+  return handleJsonResponse(res, 'Failed to fetch admin stats');
 }
 
 export async function fetchAdminDeposits(): Promise<DepositRequest[]> {
   const res = await fetch(`${BASE_URL}/api/admin/deposits`);
-  const data = await res.json();
-  if (!res.ok) throw new Error('Failed to fetch deposits');
+  const data = await handleJsonResponse(res, 'Failed to fetch deposits');
   return data.deposits;
 }
 
 export async function approveDeposit(id: string): Promise<{ deposit: DepositRequest }> {
   const res = await fetch(`${BASE_URL}/api/admin/deposits/${id}/approve`, { method: 'POST' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to approve deposit');
-  return data;
+  return handleJsonResponse(res, 'Failed to approve deposit');
 }
 
 export async function rejectDeposit(id: string, reason?: string): Promise<{ deposit: DepositRequest }> {
@@ -207,23 +201,18 @@ export async function rejectDeposit(id: string, reason?: string): Promise<{ depo
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to reject deposit');
-  return data;
+  return handleJsonResponse(res, 'Failed to reject deposit');
 }
 
 export async function fetchAdminWithdrawals(): Promise<WithdrawalRequest[]> {
   const res = await fetch(`${BASE_URL}/api/admin/withdrawals`);
-  const data = await res.json();
-  if (!res.ok) throw new Error('Failed to fetch withdrawals');
+  const data = await handleJsonResponse(res, 'Failed to fetch withdrawals');
   return data.withdrawals;
 }
 
 export async function approveWithdrawal(id: string): Promise<{ withdrawal: WithdrawalRequest }> {
   const res = await fetch(`${BASE_URL}/api/admin/withdrawals/${id}/approve`, { method: 'POST' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to approve withdrawal');
-  return data;
+  return handleJsonResponse(res, 'Failed to approve withdrawal');
 }
 
 export async function rejectWithdrawal(id: string, reason?: string): Promise<{ withdrawal: WithdrawalRequest }> {
@@ -232,15 +221,12 @@ export async function rejectWithdrawal(id: string, reason?: string): Promise<{ w
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to reject withdrawal');
-  return data;
+  return handleJsonResponse(res, 'Failed to reject withdrawal');
 }
 
 export async function fetchAdminUsers(): Promise<User[]> {
   const res = await fetch(`${BASE_URL}/api/admin/users`);
-  const data = await res.json();
-  if (!res.ok) throw new Error('Failed to fetch users');
+  const data = await handleJsonResponse(res, 'Failed to fetch users');
   return data.users;
 }
 
@@ -250,8 +236,7 @@ export async function updateUserBalance(id: string, params: { newBalance?: numbe
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update user balance');
+  const data = await handleJsonResponse(res, 'Failed to update user balance');
   return data.user;
 }
 
@@ -271,9 +256,7 @@ export async function fetchOverrideInfo(room = 'WINGO_30S'): Promise<{
   breakdown: Record<string, { count: number; totalAmount: number }>;
 }> {
   const res = await fetch(`${BASE_URL}/api/admin/override-info?room=${room}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error('Failed to fetch override information');
-  return data;
+  return handleJsonResponse(res, 'Failed to fetch override information');
 }
 
 export async function overrideRoundNumber(params: {
@@ -286,8 +269,7 @@ export async function overrideRoundNumber(params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to override number');
+  const data = await handleJsonResponse(res, 'Failed to override number');
   return data.message;
 }
 
@@ -297,8 +279,7 @@ export async function clearScheduledOverride(period: string, room?: string): Pro
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ period, room }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to clear scheduled override');
+  const data = await handleJsonResponse(res, 'Failed to clear scheduled override');
   return data.message;
 }
 
@@ -310,9 +291,7 @@ export async function fetchLiveBets(): Promise<{
   currentBets: Bet[];
 }> {
   const res = await fetch(`${BASE_URL}/api/admin/live-bets`);
-  const data = await res.json();
-  if (!res.ok) throw new Error('Failed to fetch live bets');
-  return data;
+  return handleJsonResponse(res, 'Failed to fetch live bets');
 }
 
 export async function updateAdminSettings(settings: Partial<SystemSettings>): Promise<SystemSettings> {
@@ -321,16 +300,13 @@ export async function updateAdminSettings(settings: Partial<SystemSettings>): Pr
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update settings');
+  const data = await handleJsonResponse(res, 'Failed to update settings');
   return data.settings;
 }
 
 export async function fetchAdminPeriods(): Promise<{ rounds: GameRound[]; totalCount: number; maxLimit: number }> {
   const res = await fetch(`${BASE_URL}/api/admin/periods`);
-  const data = await res.json();
-  if (!res.ok) throw new Error('Failed to fetch period history from database');
-  return data;
+  return handleJsonResponse(res, 'Failed to fetch period history from database');
 }
 
 export async function addOrEditAdminPeriod(params: { period: string; room?: string; number: number }): Promise<GameRound> {
@@ -339,8 +315,7 @@ export async function addOrEditAdminPeriod(params: { period: string; room?: stri
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update period result in database');
+  const data = await handleJsonResponse(res, 'Failed to update period result in database');
   return data.round;
 }
 
@@ -359,15 +334,13 @@ export async function updateAdminUser(id: string, params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update user');
+  const data = await handleJsonResponse(res, 'Failed to update user');
   return data.user;
 }
 
 export async function deleteAdminUser(id: string): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/admin/users/${id}`, { method: 'DELETE' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to delete user');
+  const data = await handleJsonResponse(res, 'Failed to delete user');
   return data.message;
 }
 
@@ -382,15 +355,13 @@ export async function updateAdminDeposit(id: string, params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update deposit');
+  const data = await handleJsonResponse(res, 'Failed to update deposit');
   return data.deposit;
 }
 
 export async function deleteAdminDeposit(id: string): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/admin/deposits/${id}`, { method: 'DELETE' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to delete deposit');
+  const data = await handleJsonResponse(res, 'Failed to delete deposit');
   return data.message;
 }
 
@@ -409,21 +380,18 @@ export async function updateAdminWithdrawal(id: string, params: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update withdrawal');
+  const data = await handleJsonResponse(res, 'Failed to update withdrawal');
   return data.withdrawal;
 }
 
 export async function deleteAdminWithdrawal(id: string): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/admin/withdrawals/${id}`, { method: 'DELETE' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to delete withdrawal');
+  const data = await handleJsonResponse(res, 'Failed to delete withdrawal');
   return data.message;
 }
 
 export async function deleteAdminPeriod(period: string): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/admin/periods/${period}`, { method: 'DELETE' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to delete period');
+  const data = await handleJsonResponse(res, 'Failed to delete period');
   return data.message;
 }

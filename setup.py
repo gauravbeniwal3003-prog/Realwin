@@ -10,7 +10,7 @@ def build_node_app():
         subprocess.run(["npm", "install"], check=True)
         subprocess.run(["npm", "run", "build"], check=True)
     except Exception as e:
-        print(f"==> Build phase error: {e}")
+        print(f"==> Build phase notice: {e}")
 
 class CustomDevelopCommand(develop):
     def run(self):
@@ -26,6 +26,10 @@ setup(
     name="realwin",
     version="1.0.0",
     py_modules=["server"],
+    install_requires=[
+        "flask",
+        "requests",
+    ],
     cmdclass={
         'develop': CustomDevelopCommand,
         'install': CustomInstallCommand,
