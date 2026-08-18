@@ -37,18 +37,22 @@ import {
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// Handle path normalization FIRST for serverless / Vercel rewrites
+// Handle path normalization FIRST for serverless / Vercel rewrites (only for API subpaths)
 app.use((req, res, next) => {
-  const targetUrl = req.originalUrl || req.url || '';
-  if (targetUrl && !targetUrl.startsWith('/api') && (
-    targetUrl.startsWith('/auth') ||
-    targetUrl.startsWith('/game') ||
-    targetUrl.startsWith('/wallet') ||
-    targetUrl.startsWith('/admin') ||
-    targetUrl.startsWith('/cashfree') ||
-    targetUrl.startsWith('/health')
-  )) {
-    req.url = '/api' + targetUrl;
+  const currentUrl = req.url || '';
+  if (
+    currentUrl &&
+    !currentUrl.startsWith('/api') &&
+    (
+      currentUrl.startsWith('/auth') ||
+      currentUrl.startsWith('/game') ||
+      currentUrl.startsWith('/wallet') ||
+      currentUrl.startsWith('/admin') ||
+      currentUrl.startsWith('/cashfree') ||
+      currentUrl.startsWith('/health')
+    )
+  ) {
+    req.url = '/api' + (currentUrl.startsWith('/') ? '' : '/') + currentUrl;
   }
   next();
 });
