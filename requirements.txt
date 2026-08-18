@@ -1,0 +1,1 @@
+# Fallback for Render Python environment detection

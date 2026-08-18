@@ -1918,4 +1918,5 @@ if (process.env.VERCEL !== '1') {
   startServer();
 }
 
+export { app };
 export default app;
