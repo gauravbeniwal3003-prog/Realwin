@@ -39,15 +39,16 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Handle path normalization FIRST for serverless / Vercel rewrites
 app.use((req, res, next) => {
-  if (req.url && !req.url.startsWith('/api') && (
-    req.url.startsWith('/auth') ||
-    req.url.startsWith('/game') ||
-    req.url.startsWith('/wallet') ||
-    req.url.startsWith('/admin') ||
-    req.url.startsWith('/cashfree') ||
-    req.url.startsWith('/health')
+  const targetUrl = req.originalUrl || req.url || '';
+  if (targetUrl && !targetUrl.startsWith('/api') && (
+    targetUrl.startsWith('/auth') ||
+    targetUrl.startsWith('/game') ||
+    targetUrl.startsWith('/wallet') ||
+    targetUrl.startsWith('/admin') ||
+    targetUrl.startsWith('/cashfree') ||
+    targetUrl.startsWith('/health')
   )) {
-    req.url = '/api' + req.url;
+    req.url = '/api' + targetUrl;
   }
   next();
 });
@@ -87,7 +88,7 @@ const globalApiLimiter = rateLimit({
   max: 10000, // 10000 requests per 15 minutes for real-time polling
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { trustProxy: false, xForwardedForHeader: false },
+  validate: false,
   message: { error: 'Too many requests from this IP, please try again in 15 minutes.' },
 });
 
@@ -97,7 +98,7 @@ const authLimiter = rateLimit({
   max: 300, // 300 login/init attempts per 15 minutes
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { trustProxy: false, xForwardedForHeader: false },
+  validate: false,
   message: { error: 'Too many authentication attempts. Please try again in 15 minutes.' },
 });
 
@@ -107,7 +108,7 @@ const transactionLimiter = rateLimit({
   max: 120, // 120 requests per minute
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { trustProxy: false, xForwardedForHeader: false },
+  validate: false,
   message: { error: 'Transaction limit reached. Please wait a minute before retrying.' },
 });
 
@@ -117,14 +118,6 @@ app.use('/api/auth/', authLimiter);
 app.use('/api/deposit', transactionLimiter);
 app.use('/api/withdraw', transactionLimiter);
 app.use('/api/bet', transactionLimiter);
-
-// Handle path normalization for serverless / Vercel rewrites
-app.use((req, res, next) => {
-  if (!req.url.startsWith('/api') && (req.url.startsWith('/auth') || req.url.startsWith('/game') || req.url.startsWith('/wallet') || req.url.startsWith('/admin') || req.url.startsWith('/cashfree') || req.url.startsWith('/health'))) {
-    req.url = '/api' + req.url;
-  }
-  next();
-});
 
 // Auto-Process Game Rounds on Every API Request (Guarantees timer & payouts on serverless/Vercel)
 app.use('/api', (req, res, next) => {
