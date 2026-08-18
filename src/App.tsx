@@ -175,29 +175,76 @@ export default function App() {
   };
 
   // Synchronized sync loop based on active room
+  const activeRoomRef = useRef<RoomType>(activeRoom);
+  activeRoomRef.current = activeRoom;
+
+  const lastPeriodIdRef = useRef<string>(lastPeriodId);
+  lastPeriodIdRef.current = lastPeriodId;
+
+  const userRef = useRef<User | null>(user);
+  userRef.current = user;
+
+  const isSyncingRef = useRef<boolean>(false);
+
+  // Smooth client-side countdown timer between server syncs
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        if (prev.secondsRemaining <= 0) return prev;
+        const newSecs = prev.secondsRemaining - 1;
+        return {
+          ...prev,
+          secondsRemaining: newSecs,
+          isLocked: newSecs <= 5,
+        };
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const syncServer = useCallback(async () => {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
+
     try {
-      const state = await fetchGameState(activeRoom);
+      const room = activeRoomRef.current;
+      const state = await fetchGameState(room);
       setGameState(state);
 
-      if (state.period !== lastPeriodId) {
+      if (state.period !== lastPeriodIdRef.current) {
         setLastPeriodId(state.period);
+        lastPeriodIdRef.current = state.period;
 
-        const histData = await fetchGameHistory(1, 100, activeRoom);
-        setHistory(histData.rounds);
+        try {
+          const histData = await fetchGameHistory(1, 100, room);
+          setHistory(histData.rounds);
+        } catch (_) {
+          // Ignore transient history fetch error
+        }
 
-        if (user) {
-          const freshUser = await fetchUser(user.id);
-          setUser(freshUser);
+        const currentUser = userRef.current;
+        if (currentUser) {
+          try {
+            const freshUser = await fetchUser(currentUser.id);
+            setUser(freshUser);
 
-          const freshBets = await fetchMyBets(user.id);
-          setMyBets(freshBets);
+            const freshBets = await fetchMyBets(currentUser.id);
+            setMyBets(freshBets);
+          } catch (_) {
+            // Ignore transient user/bets fetch error
+          }
         }
       }
-    } catch (err) {
-      console.error('Error syncing game state:', err);
+    } catch (err: any) {
+      // Suppress noisy transient network offline / "Failed to fetch" errors during continuous polling
+      if (err?.message !== 'Failed to fetch' && !String(err).includes('Failed to fetch')) {
+        console.warn('Game state sync notice:', err?.message || err);
+      }
+    } finally {
+      isSyncingRef.current = false;
     }
-  }, [activeRoom, lastPeriodId, user]);
+  }, []);
 
   useEffect(() => {
     syncServer();

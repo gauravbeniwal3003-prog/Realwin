@@ -38,6 +38,21 @@ import {
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
+// Handle path normalization FIRST for serverless / Vercel rewrites
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api') && (
+    req.url.startsWith('/auth') ||
+    req.url.startsWith('/game') ||
+    req.url.startsWith('/wallet') ||
+    req.url.startsWith('/admin') ||
+    req.url.startsWith('/cashfree') ||
+    req.url.startsWith('/health')
+  )) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 // Security: Enable trust proxy for reverse proxy environments (e.g. Cloud Run, Nginx)
 app.set('trust proxy', 1);
 
@@ -141,7 +156,10 @@ function sanitizePhone(phone: any): string {
 }
 
 // Ensure data directory exists safely (handling read-only filesystems like Vercel serverless)
-let DATA_DIR = path.join(process.cwd(), 'data');
+let DATA_DIR = (process.env.VERCEL === '1' || process.env.AWS_LAMBDA_FUNCTION_NAME) 
+  ? path.join('/tmp', 'data') 
+  : path.join(process.cwd(), 'data');
+
 try {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -153,7 +171,7 @@ try {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
   } catch (_) {
-    // Ignore if /tmp is constrained
+    // Ignore if /tmp is constrained in serverless sandbox
   }
 }
 
