@@ -198,14 +198,53 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/support')}
+            onClick={() => navigate('/contact')}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-500 flex items-center justify-center">
                 <Headset className="w-4 h-4" />
               </div>
-              <span className="text-xs font-bold text-gray-800">24/7 Customer Support</span>
+              <span className="text-xs font-bold text-gray-800">24/7 Support & Contact Us</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </div>
+
+          <div 
+            onClick={() => navigate('/terms')}
+            className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center">
+                <FileText className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-gray-800">Terms & Conditions</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </div>
+
+          <div 
+            onClick={() => navigate('/refunds')}
+            className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                <RefreshCw className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-gray-800">Refunds & Cancellations Policy</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </div>
+
+          <div 
+            onClick={() => navigate('/pricing')}
+            className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
+                <Gift className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-gray-800">Products & Pricing (INR ₹)</span>
             </div>
             <ChevronRight className="w-4 h-4 text-gray-300" />
           </div>

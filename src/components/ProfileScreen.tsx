@@ -13,6 +13,7 @@ interface ProfileScreenProps {
   onRefreshUser: () => void;
   isRefreshing: boolean;
   onOpenFairPlay: () => void;
+  onOpenPolicy: (tab: 'CONTACT' | 'TERMS' | 'REFUND' | 'PRIVACY' | 'SERVICES') => void;
   myBetsCount: number;
 }
 
@@ -23,6 +24,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onRefreshUser,
   isRefreshing,
   onOpenFairPlay,
+  onOpenPolicy,
   myBetsCount,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -206,12 +208,57 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
 
           {/* Customer Support */}
-          <div className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer">
+          <div 
+            onClick={() => onOpenPolicy('CONTACT')}
+            className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
+          >
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-500 flex items-center justify-center">
                 <Headset className="w-4 h-4" />
               </div>
-              <span className="text-xs font-bold text-gray-800">24/7 Customer Support</span>
+              <span className="text-xs font-bold text-gray-800">24/7 Support & Contact Us</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </div>
+
+          {/* Terms & Conditions */}
+          <div 
+            onClick={() => onOpenPolicy('TERMS')}
+            className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center">
+                <FileText className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-gray-800">Terms & Conditions</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </div>
+
+          {/* Refunds & Cancellations */}
+          <div 
+            onClick={() => onOpenPolicy('REFUND')}
+            className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                <RefreshCw className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-gray-800">Refunds & Cancellations Policy</span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </div>
+
+          {/* Products & Services Pricing in INR */}
+          <div 
+            onClick={() => onOpenPolicy('SERVICES')}
+            className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
+                <Gift className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-gray-800">Products & Pricing (INR ₹)</span>
             </div>
             <ChevronRight className="w-4 h-4 text-gray-300" />
           </div>
