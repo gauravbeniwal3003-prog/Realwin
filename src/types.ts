@@ -40,8 +40,10 @@ export interface User {
   phone: string;
   name: string;
   balance: number;
+  unwageredDeposit?: number;
   isAdmin: boolean;
   isBanned?: boolean;
+  banReason?: string;
   vipLevel?: number;
   password?: string;
   createdAt: number;

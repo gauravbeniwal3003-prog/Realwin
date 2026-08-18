@@ -5,8 +5,14 @@ dotenv.config();
 import { User, GameRound, Bet, DepositRequest, WithdrawalRequest, SystemSettings, RoomType } from '../types';
 
 // Supabase Credentials (from process.env)
-export const SUPABASE_URL = process.env.SUPABASE_URL || 'https://tkvcianczzdxrjylrdyq.supabase.co';
-export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRrdmNpYW5jenpkeHJqeWxyZHlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3MTMwNjQsImV4cCI6MjEwMTI4OTA2NH0.81-XSAxkfZ1nIH4UpYKeX4ybrR3olnt0KkZ6l8vngCg';
+export const SUPABASE_URL = process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
+export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'placeholder-key';
+
+export const isSupabaseConfigured = Boolean(
+  process.env.SUPABASE_URL &&
+  process.env.SUPABASE_ANON_KEY &&
+  !process.env.SUPABASE_URL.includes('placeholder')
+);
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -20,6 +26,7 @@ console.log('✅ Supabase Client initialized successfully.');
 // --- Helper Functions to Load and Persist DB entities ---
 
 export async function loadUsersFromSupabase(): Promise<User[]> {
+  if (!isSupabaseConfigured) return [];
   try {
     const { data, error } = await supabase.from('users').select('*');
     if (error || !data) return [];
@@ -40,6 +47,7 @@ export async function loadUsersFromSupabase(): Promise<User[]> {
 }
 
 export async function saveUserToSupabase(user: User): Promise<void> {
+  if (!isSupabaseConfigured) return;
   try {
     const payload = {
       id: user.id,
@@ -65,6 +73,7 @@ export async function saveUserToSupabase(user: User): Promise<void> {
 }
 
 export async function loadGameRoundsFromSupabase(): Promise<GameRound[]> {
+  if (!isSupabaseConfigured) return [];
   try {
     const { data, error } = await supabase
       .from('game_rounds')
@@ -96,6 +105,7 @@ export async function loadGameRoundsFromSupabase(): Promise<GameRound[]> {
 }
 
 export async function saveGameRoundToSupabase(round: GameRound): Promise<void> {
+  if (!isSupabaseConfigured) return;
   try {
     const payload = {
       period: String(round.period),
@@ -157,6 +167,7 @@ export async function pruneOldGameRoundsFromSupabase(): Promise<void> {
 }
 
 export async function loadBetsFromSupabase(): Promise<Bet[]> {
+  if (!isSupabaseConfigured) return [];
   try {
     const { data, error } = await supabase
       .from('bets')
@@ -186,6 +197,7 @@ export async function loadBetsFromSupabase(): Promise<Bet[]> {
 }
 
 export async function saveBetToSupabase(bet: Bet): Promise<void> {
+  if (!isSupabaseConfigured) return;
   try {
     await supabase.from('bets').upsert({
       id: bet.id,
@@ -207,6 +219,7 @@ export async function saveBetToSupabase(bet: Bet): Promise<void> {
 }
 
 export async function loadDepositsFromSupabase(): Promise<DepositRequest[]> {
+  if (!isSupabaseConfigured) return [];
   try {
     const { data, error } = await supabase
       .from('deposits')
@@ -234,6 +247,7 @@ export async function loadDepositsFromSupabase(): Promise<DepositRequest[]> {
 }
 
 export async function saveDepositToSupabase(deposit: DepositRequest): Promise<void> {
+  if (!isSupabaseConfigured) return;
   try {
     await supabase.from('deposits').upsert({
       id: deposit.id,
@@ -254,6 +268,7 @@ export async function saveDepositToSupabase(deposit: DepositRequest): Promise<vo
 }
 
 export async function loadWithdrawalsFromSupabase(): Promise<WithdrawalRequest[]> {
+  if (!isSupabaseConfigured) return [];
   try {
     const { data, error } = await supabase
       .from('withdrawals')
@@ -282,6 +297,7 @@ export async function loadWithdrawalsFromSupabase(): Promise<WithdrawalRequest[]
 }
 
 export async function saveWithdrawalToSupabase(withdrawal: WithdrawalRequest): Promise<void> {
+  if (!isSupabaseConfigured) return;
   try {
     await supabase.from('withdrawals').upsert({
       id: withdrawal.id,
@@ -303,6 +319,7 @@ export async function saveWithdrawalToSupabase(withdrawal: WithdrawalRequest): P
 }
 
 export async function loadSystemSettingsFromSupabase(): Promise<SystemSettings | null> {
+  if (!isSupabaseConfigured) return null;
   try {
     const { data, error } = await supabase.from('system_settings').select('*').limit(1).maybeSingle();
     if (error || !data) return null;
@@ -323,6 +340,7 @@ export async function loadSystemSettingsFromSupabase(): Promise<SystemSettings |
 }
 
 export async function saveSystemSettingsToSupabase(settings: SystemSettings): Promise<void> {
+  if (!isSupabaseConfigured) return;
   try {
     await supabase.from('system_settings').upsert({
       id: 1,

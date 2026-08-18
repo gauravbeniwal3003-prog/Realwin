@@ -177,7 +177,7 @@ let state: AppState = {
     upiId: 'colorwin.pay@upi',
     upiName: 'ColorWin Official Payments',
     qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=colorwin.pay@upi&pn=ColorWin',
-    minDeposit: 500,
+    minDeposit: 300,
     maxDeposit: 5000,
     minWithdrawal: 300,
     maxWithdrawal: 300000,
@@ -740,6 +740,9 @@ app.post('/api/game/bet', (req, res) => {
 
   // Deduct balance immediately on server
   user.balance -= amount;
+  if (user.unwageredDeposit && user.unwageredDeposit > 0) {
+    user.unwageredDeposit = Math.max(0, user.unwageredDeposit - amount);
+  }
 
   const newBet: Bet = {
     id: 'bet_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
@@ -846,14 +849,23 @@ app.post('/api/wallet/deposit', (req, res) => {
 // --- CASHFREE PAYMENT GATEWAY INTEGRATION ---
 const CASHFREE_APP_ID = process.env.CASHFREE_APP_ID || '';
 const CASHFREE_SECRET_KEY = process.env.CASHFREE_SECRET_KEY || '';
-const CASHFREE_API_URL = 'https://api.cashfree.com/pg';
+
+const isCashfreeSandbox = 
+  (process.env.CASHFREE_ENV || process.env.CASHFREE_MODE || '').toLowerCase() === 'sandbox' ||
+  CASHFREE_APP_ID.toLowerCase().startsWith('test');
+
+const CASHFREE_API_URL = isCashfreeSandbox 
+  ? 'https://sandbox.cashfree.com/pg' 
+  : 'https://api.cashfree.com/pg';
+
+console.log(`[Cashfree Config] App ID starting with: "${CASHFREE_APP_ID.slice(0, 6)}...", Env Mode: ${isCashfreeSandbox ? 'SANDBOX' : 'PRODUCTION'}, URL: ${CASHFREE_API_URL}`);
 
 // Create Cashfree Order
 app.post('/api/cashfree/create-order', async (req, res) => {
   try {
     const { userId, amount } = req.body;
     const numAmount = Number(amount);
-    const minDep = state.settings.minDeposit || 500;
+    const minDep = state.settings.minDeposit || 300;
     const maxDep = state.settings.maxDeposit || 5000;
 
     if (!userId || isNaN(numAmount) || numAmount < minDep || numAmount > maxDep) {
@@ -929,6 +941,7 @@ app.post('/api/cashfree/create-order', async (req, res) => {
       order_id: data.order_id || orderId,
       payment_session_id: data.payment_session_id,
       order_amount: data.order_amount,
+      cf_env: isCashfreeSandbox ? 'sandbox' : 'production',
     });
   } catch (err: any) {
     console.error('Error creating Cashfree order:', err);
@@ -966,6 +979,21 @@ async function verifyAndProcessCashfreeOrder(orderId: string) {
         const user = state.users.find(u => u.id === deposit!.userId || u.phone === deposit!.userPhone);
         if (user) {
           user.balance += deposit.amount;
+          user.unwageredDeposit = (user.unwageredDeposit || 0) + deposit.amount;
+
+          // Referral Commission
+          if (user.referredBy && state.settings.referralCommissionPercent) {
+            const referrer = state.users.find(u => u.id === user.referredBy || u.phone.endsWith(user.referredBy!));
+            if (referrer) {
+              const comm = Math.round((deposit.amount * state.settings.referralCommissionPercent) / 100);
+              if (comm > 0) {
+                referrer.balance += comm;
+                referrer.unwageredDeposit = (referrer.unwageredDeposit || 0) + comm;
+                referrer.referralEarnings = (referrer.referralEarnings || 0) + comm;
+                saveUserToSupabase(referrer);
+              }
+            }
+          }
           saveUserToSupabase(user);
         }
         saveState();
@@ -993,6 +1021,7 @@ async function verifyAndProcessCashfreeOrder(orderId: string) {
 
       if (user) {
         user.balance += amountPaid;
+        user.unwageredDeposit = (user.unwageredDeposit || 0) + amountPaid;
         saveUserToSupabase(user);
       }
       state.deposits.unshift(newDep);
@@ -1053,6 +1082,49 @@ app.get('/api/cashfree/callback', async (req, res) => {
   }
 });
 
+// Cashfree Server-to-Server Webhook Handler
+app.post('/api/cashfree/webhook', async (req, res) => {
+  try {
+    const event = req.body?.type || req.body?.event;
+    const orderId = req.body?.data?.order?.order_id || req.body?.order_id || req.body?.data?.order_id;
+    console.log(`[Cashfree Webhook] Event: ${event}, Order ID: ${orderId}`);
+
+    if (orderId) {
+      const result = await verifyAndProcessCashfreeOrder(orderId);
+      console.log(`[Cashfree Webhook] Auto-Processed Order ${orderId}: ${result.status}`);
+    }
+    return res.status(200).json({ status: 'OK' });
+  } catch (err: any) {
+    console.error('[Cashfree Webhook Error]:', err?.message);
+    return res.status(200).json({ status: 'HANDLED' });
+  }
+});
+
+// Background Auto Re-checker Loop for Pending Cashfree Deposits (Runs every 30 seconds)
+setInterval(async () => {
+  try {
+    const now = Date.now();
+    const pendingCashfree = state.deposits.filter(
+      d => ((d.paymentMethod as any) === 'CASHFREE' || String(d.id).startsWith('CF_')) &&
+           d.status === 'PENDING' &&
+           (now - d.createdAt) < 24 * 60 * 60 * 1000
+    );
+
+    for (const dep of pendingCashfree) {
+      try {
+        const result = await verifyAndProcessCashfreeOrder(dep.id);
+        if (result.success && result.status === 'PAID') {
+          console.log(`⚡ [Auto Re-Checker] Cashfree Deposit ${dep.id} verified & credited ₹${result.amount} automatically!`);
+        }
+      } catch (e) {
+        // Silent catch per pending order check
+      }
+    }
+  } catch (err) {
+    console.error('Error in Cashfree auto re-check loop:', err);
+  }
+}, 30000);
+
 // Withdrawal Request
 app.post('/api/wallet/withdraw', (req, res) => {
   const { userId, amount, type, upiId, bankDetails } = req.body;
@@ -1070,13 +1142,30 @@ app.post('/api/wallet/withdraw', (req, res) => {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  // Check if user has deposited at least ₹100 before withdrawing
+  if (user.isBanned) {
+    return res.status(403).json({
+      error: 'Device & Account Banned: Your access has been restricted due to policy violation.',
+      isBanned: true,
+    });
+  }
+
+  // Check if user has deposited at least ₹300 before withdrawing
   const userApprovedDeposits = state.deposits.filter(d => (d.userId === userId || d.userPhone === user.phone) && d.status === 'APPROVED');
   const totalDeposits = userApprovedDeposits.reduce((sum, d) => sum + d.amount, 0);
 
-  if (totalDeposits < 100) {
+  if (totalDeposits < 300) {
     return res.status(400).json({
-      error: 'Withdrawal Locked: You need to make a minimum deposit of at least ₹100 before sending a withdrawal request. (Note: Currently minimum available deposit option is ₹500).'
+      error: 'Withdrawal Locked: You must make a deposit of at least ₹300 before placing withdrawal requests.'
+    });
+  }
+
+  // Check Wagering Turnover Requirement (Winnings only withdrawable)
+  const unwagered = user.unwageredDeposit || 0;
+  const withdrawableBalance = Math.max(0, user.balance - unwagered);
+
+  if (numAmount > withdrawableBalance) {
+    return res.status(400).json({
+      error: `Withdrawal Locked: You must place bets worth ₹${Math.ceil(unwagered)} more before withdrawing. Current Withdrawable (Winning) Balance is ₹${Math.floor(withdrawableBalance)}.`
     });
   }
 
@@ -1260,6 +1349,7 @@ app.post('/api/admin/deposits/:id/approve', (req, res) => {
   const user = state.users.find(u => u.id === dep.userId);
   if (user) {
     user.balance += dep.amount;
+    user.unwageredDeposit = (user.unwageredDeposit || 0) + dep.amount;
 
     // Process 5% Deposit Referral Commission
     if (user.referredBy) {
@@ -1267,6 +1357,7 @@ app.post('/api/admin/deposits/:id/approve', (req, res) => {
       if (referrer) {
         const bonus = Math.round(dep.amount * 0.05 * 100) / 100;
         referrer.balance += bonus;
+        referrer.unwageredDeposit = (referrer.unwageredDeposit || 0) + bonus;
         referrer.referralEarnings = (referrer.referralEarnings || 0) + bonus;
         saveUserToSupabase(referrer);
         console.log(`[Referral] 5% Commission ₹${bonus} credited to ${referrer.phone} for user ${user.phone}'s deposit of ₹${dep.amount}`);

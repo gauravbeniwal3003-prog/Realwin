@@ -16,6 +16,10 @@ import {
   Sparkles,
   RefreshCw,
   ShieldCheck,
+  Crown,
+  Lock,
+  UserCheck,
+  Zap,
 } from 'lucide-react';
 import { User, DepositRequest, WithdrawalRequest, Bet } from '../types';
 
@@ -26,7 +30,7 @@ interface SupportPageProps {
   myBets?: Bet[];
 }
 
-type IssueCategory = 'DEPOSIT' | 'WITHDRAWAL' | 'BET' | 'REFERRAL';
+type IssueCategory = 'DEPOSIT' | 'WITHDRAWAL' | 'BET' | 'REFERRAL' | 'ONE_ON_ONE';
 
 interface ChatMessage {
   id: string;
@@ -79,10 +83,17 @@ export const SupportPage: React.FC<SupportPageProps> = ({
     scrollToBottom();
   }, [messages, isTyping]);
 
+  const totalApprovedDeposit = deposits
+    .filter(d => (d.userId === user?.id || d.userPhone === user?.phone) && d.status === 'APPROVED')
+    .reduce((sum, d) => sum + d.amount, 0);
+
+  const isEligibleForOneOnOne = totalApprovedDeposit >= 1000;
+
   const handleSelectCategory = (category: IssueCategory) => {
     const time = getNowTime();
     let userMsgText = '';
     let agentMsgText = '';
+    let stepType: 'LOGS' | 'CONFIRMATION' = 'LOGS';
 
     if (category === 'DEPOSIT') {
       userMsgText = '💳 I am facing an issue with my Deposit';
@@ -96,6 +107,14 @@ export const SupportPage: React.FC<SupportPageProps> = ({
     } else if (category === 'REFERRAL') {
       userMsgText = '🎁 I am facing an issue with Referral or Bonus';
       agentMsgText = `Your account phone: ${user?.phone || 'N/A'}. Total wallet balance: ₹${(user?.balance ?? 0).toLocaleString('en-IN')}. Click below to submit this referral query to admin:`;
+    } else if (category === 'ONE_ON_ONE') {
+      userMsgText = '👑 Requesting 1-on-1 VIP Direct Support';
+      stepType = 'CONFIRMATION';
+      if (totalApprovedDeposit >= 1000) {
+        agentMsgText = 'Request forwarded to the admin he will contact you as soon as possible in some cases the response can be delay due to high traffic';
+      } else {
+        agentMsgText = `🔒 1-on-1 VIP Direct Support is Locked!\n\nMinimum total deposit of ₹1,000 is required to unlock direct 1-on-1 Admin Support.\n\nYour current total deposit till now is ₹${totalApprovedDeposit.toLocaleString('en-IN')}. Please deposit at least ₹${(1000 - totalApprovedDeposit).toLocaleString('en-IN')} more to unlock 1-on-1 VIP Support.`;
+      }
     }
 
     const newUserMsg: ChatMessage = {
@@ -115,7 +134,7 @@ export const SupportPage: React.FC<SupportPageProps> = ({
         sender: 'AGENT',
         text: agentMsgText,
         time: getNowTime(),
-        step: 'LOGS',
+        step: stepType,
         category,
       };
       setMessages(prev => [...prev, newAgentMsg]);
@@ -260,6 +279,66 @@ export const SupportPage: React.FC<SupportPageProps> = ({
           </div>
         </div>
 
+        {/* Dedicated 1-on-1 VIP Direct Support Option Card */}
+        <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-yellow-950 p-4 rounded-3xl border border-amber-500/30 text-white shadow-md space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                <Crown className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-black text-amber-200 uppercase tracking-wider">
+                    1-on-1 VIP Support (वन-ऑन-वन सपोर्ट)
+                  </h3>
+                  {isEligibleForOneOnOne ? (
+                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-black border border-emerald-500/30 flex items-center gap-1">
+                      <Zap className="w-2.5 h-2.5" /> UNLOCKED
+                    </span>
+                  ) : (
+                    <span className="text-[9px] bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full font-black border border-rose-500/30 flex items-center gap-1">
+                      <Lock className="w-2.5 h-2.5" /> LOCKED
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-300 font-medium">
+                  Direct Admin Assistance • Total Deposit Min ₹1,000 Required
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between bg-black/30 p-2.5 rounded-2xl text-xs border border-white/5">
+            <div className="text-[11px]">
+              <span className="text-slate-400 block font-medium">Your Total Approved Recharge:</span>
+              <strong className="text-amber-300 font-mono font-black text-xs">
+                ₹{totalApprovedDeposit.toLocaleString('en-IN')} / ₹1,000
+              </strong>
+            </div>
+
+            <button
+              onClick={() => handleSelectCategory('ONE_ON_ONE')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition active:scale-95 shadow-xs ${
+                isEligibleForOneOnOne
+                  ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 hover:brightness-110 shadow-amber-500/20'
+                  : 'bg-slate-800 text-amber-300 border border-amber-500/30 hover:bg-slate-700'
+              }`}
+            >
+              {isEligibleForOneOnOne ? (
+                <>
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Request 1-on-1 Support</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Check & Request</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
         {/* Live Support Chat Container */}
         <div className="bg-white rounded-3xl border border-gray-100 shadow-md overflow-hidden flex flex-col h-[460px]">
           {/* Header Bar */}
@@ -344,6 +423,21 @@ export const SupportPage: React.FC<SupportPageProps> = ({
                             <Users className="w-4 h-4 text-indigo-600" />
                             <span>Referral & Bonus Issue (रेफरल और बोनस)</span>
                           </div>
+                        </button>
+
+                        <button
+                          onClick={() => handleSelectCategory('ONE_ON_ONE')}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 font-bold text-xs transition active:scale-95 flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Crown className="w-4 h-4 text-amber-600" />
+                            <span>1-on-1 VIP Support (वन-ऑन-वन सपोर्ट)</span>
+                          </div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold ${
+                            isEligibleForOneOnOne ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {isEligibleForOneOnOne ? '✓ Eligible' : 'Min ₹1,000'}
+                          </span>
                         </button>
                       </div>
                     </div>

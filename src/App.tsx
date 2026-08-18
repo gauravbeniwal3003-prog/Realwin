@@ -14,7 +14,7 @@ import { ScrollToTop } from './components/ScrollToTop';
 import { BottomNav } from './components/BottomNav';
 import { GameResultModal, GameResultModalData } from './components/GameResultModal';
 import { RealWinLogo } from './components/RealWinLogo';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ShieldAlert } from 'lucide-react';
 import {
   User,
   GameRound,
@@ -38,7 +38,35 @@ import {
   loginUser,
 } from './lib/api';
 
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  user: User | null;
+  isCheckingAuth: boolean;
+}
+
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, user, isCheckingAuth }) => {
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-[#f7f8ff] flex flex-col items-center justify-center p-4 font-sans select-none">
+        <RealWinLogo size="lg" lightMode={true} />
+        <div className="mt-4 flex items-center gap-2 text-xs font-bold text-gray-500 animate-pulse">
+          <RefreshCw className="w-4 h-4 animate-spin text-[#ff5353]" />
+          <span>Verifying session...</span>
+        </div>
+      </div>
+    );
+  }
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+};
+
 export default function App() {
+  const [isDeviceBanned, setIsDeviceBanned] = useState<boolean>(() => {
+    return localStorage.getItem('rw_device_banned') === 'true';
+  });
+
   const [user, setUser] = useState<User | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
   const [activeRoom, setActiveRoom] = useState<RoomType>('WINGO_30S');
@@ -144,24 +172,6 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('realwin_user_phone');
     setUser(null);
-  };
-
-  const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-    if (isCheckingAuth) {
-      return (
-        <div className="min-h-screen bg-[#f7f8ff] flex flex-col items-center justify-center p-4 font-sans select-none">
-          <RealWinLogo size="lg" lightMode={true} />
-          <div className="mt-4 flex items-center gap-2 text-xs font-bold text-gray-500 animate-pulse">
-            <RefreshCw className="w-4 h-4 animate-spin text-[#ff5353]" />
-            <span>Verifying session...</span>
-          </div>
-        </div>
-      );
-    }
-    if (!user) {
-      return <Navigate to="/login" replace />;
-    }
-    return <>{children}</>;
   };
 
   // Synchronized sync loop based on active room
@@ -289,6 +299,32 @@ export default function App() {
     setWithdrawals(txs.withdrawals);
   };
 
+  useEffect(() => {
+    if (user?.isBanned) {
+      localStorage.setItem('rw_device_banned', 'true');
+      setIsDeviceBanned(true);
+    }
+  }, [user]);
+
+  if (isDeviceBanned) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-white font-sans select-none">
+        <div className="w-16 h-16 bg-rose-500/20 text-rose-500 rounded-2xl flex items-center justify-center border border-rose-500/40 mb-4 animate-bounce">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h1 className="text-xl font-black text-rose-500 uppercase tracking-wider mb-2">
+          DEVICE & HARDWARE RESTRICTED
+        </h1>
+        <p className="text-xs text-slate-300 max-w-xs leading-relaxed mb-6 font-medium">
+          This device has been permanently flagged and banned due to suspicious activity or policy violations. Access to RealWin is blocked from this device.
+        </p>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 text-[11px] font-mono text-slate-400">
+          SECURITY CODE: ERR_DEVICE_PERMA_BAN
+        </div>
+      </div>
+    );
+  }
+
   return (
     <BrowserRouter>
       <ScrollToTop />
@@ -297,7 +333,7 @@ export default function App() {
         <Route
           path="/"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <LandingPage user={user} />
             </ProtectedRoute>
           }
@@ -305,7 +341,7 @@ export default function App() {
         <Route
           path="/home"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <LandingPage user={user} />
             </ProtectedRoute>
           }
@@ -342,7 +378,7 @@ export default function App() {
         <Route
           path="/game"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <GamePage
                 user={user}
                 gameState={gameState}
@@ -367,7 +403,7 @@ export default function App() {
         <Route
           path="/wallet"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <WalletPage
                 user={user}
                 settings={settings}
@@ -392,7 +428,7 @@ export default function App() {
         <Route
           path="/account"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <ProfilePage
                 user={user}
                 onRefreshUser={handleRefreshUser}
@@ -405,7 +441,7 @@ export default function App() {
         <Route
           path="/profile"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <ProfilePage
                 user={user}
                 onRefreshUser={handleRefreshUser}
@@ -431,7 +467,7 @@ export default function App() {
         <Route
           path="/fairplay"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <FairPlayPage
                 user={user}
                 historyRounds={history}
@@ -444,7 +480,7 @@ export default function App() {
         <Route
           path="/rules"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <RulesPage
                 user={user}
               />
@@ -456,7 +492,7 @@ export default function App() {
         <Route
           path="/support"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <SupportPage
                 user={user}
                 deposits={deposits}
@@ -471,7 +507,7 @@ export default function App() {
         <Route
           path="/referral"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <ReferralPage
                 user={user}
               />

@@ -30,6 +30,10 @@ async function handleJsonResponse(res: Response, defaultError: string) {
     }
   }
 
+  if (data?.isBanned || res.status === 403) {
+    localStorage.setItem('rw_device_banned', 'true');
+  }
+
   if (!res.ok) {
     throw new Error(data.error || data.message || defaultError);
   }
@@ -114,7 +118,7 @@ export async function submitDeposit(params: {
 export async function createCashfreeOrder(params: {
   userId: string;
   amount: number;
-}): Promise<{ success: boolean; order_id: string; payment_session_id: string; order_amount: number }> {
+}): Promise<{ success: boolean; order_id: string; payment_session_id: string; order_amount: number; cf_env?: string }> {
   const res = await fetch(`${BASE_URL}/api/cashfree/create-order`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
