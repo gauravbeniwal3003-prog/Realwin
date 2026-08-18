@@ -22,10 +22,10 @@ async function handleJsonResponse(res: Response, defaultError: string) {
     } catch {
       if (!res.ok) {
         if (text.includes('FUNCTION_INVOCATION_FAILED')) {
-          throw new Error('Vercel Serverless Function Crash: The backend function failed to execute. Please verify Vercel Environment Variables: SUPABASE_URL and SUPABASE_ANON_KEY must be set in Vercel Settings -> Environment Variables.');
+          throw new Error(`Server Error (${res.status}): Serverless function execution issue. Check Vercel Function Logs for exact error.`);
         }
         if (contentType.includes('text/html') || text.trim().startsWith('<')) {
-          throw new Error(`Server endpoint returned HTML instead of JSON (${res.status}). Verify your server API backend route is deployed.`);
+          throw new Error(`Server endpoint returned HTML instead of JSON (${res.status}). Verify API route deployment.`);
         }
         throw new Error(text || `Server Error (${res.status})`);
       }
@@ -39,9 +39,6 @@ async function handleJsonResponse(res: Response, defaultError: string) {
 
   if (!res.ok) {
     const rawError = data.error || data.message || defaultError;
-    if (rawError.includes('FUNCTION_INVOCATION_FAILED')) {
-      throw new Error('Vercel Serverless Function Crash: Please check your Vercel Environment Variables (SUPABASE_URL, SUPABASE_ANON_KEY).');
-    }
     throw new Error(rawError);
   }
   return data;

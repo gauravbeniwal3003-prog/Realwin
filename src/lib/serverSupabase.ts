@@ -166,6 +166,7 @@ export async function saveGameRoundToSupabase(round: GameRound): Promise<void> {
 
 // Prune old rounds in Supabase so max 1000 period results are retained
 export async function pruneOldGameRoundsFromSupabase(): Promise<void> {
+  if (!isSupabaseConfigured) return;
   try {
     // Get the 1000th newest timestamp
     const { data, error } = await supabase

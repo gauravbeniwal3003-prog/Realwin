@@ -20,6 +20,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import {
   supabase,
+  isSupabaseConfigured,
   loadUsersFromSupabase,
   saveUserToSupabase,
   loadGameRoundsFromSupabase,
@@ -242,6 +243,7 @@ if (fs.existsSync(DATA_FILE)) {
 
 // Supabase Async Hydration & Sync Bootstrapper
 async function initSupabaseData() {
+  if (!isSupabaseConfigured) return;
   try {
     const [dbUsers, dbRounds, dbBets, dbDeps, dbWths, dbSettings] = await Promise.all([
       loadUsersFromSupabase(),
@@ -601,7 +603,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     let user = state.users.find(u => u.phone === cleanPhone);
 
-    if (!user) {
+    if (!user && isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
         if (data && !error) {
@@ -655,7 +657,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     let existing = state.users.find(u => u.phone === cleanPhone);
-    if (!existing) {
+    if (!existing && isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
         if (data && !error) {
@@ -716,7 +718,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.get('/api/auth/user/:id', async (req, res) => {
   try {
     let user = state.users.find(u => u.id === req.params.id);
-    if (!user) {
+    if (!user && isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('users').select('*').eq('id', req.params.id).maybeSingle();
         if (data && !error) {
