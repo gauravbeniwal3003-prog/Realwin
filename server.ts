@@ -53,6 +53,20 @@ app.use(
 // Security: Limit payload sizes to prevent Denial of Service (DoS) via huge JSON payloads
 app.use(express.json({ limit: '50kb' }));
 
+// Security: Anti-Tampering & Request Body Integrity Middleware (Defense against Burp Suite / Postman manipulation)
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+      for (const key of Object.keys(req.body)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+          return res.status(400).json({ error: 'Malicious payload structure detected. Request rejected by security server.' });
+        }
+      }
+    }
+  }
+  next();
+});
+
 // Security: Global Rate Limiter to prevent DDoS flooding attacks (allows live polling for timer & state)
 const globalApiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -718,30 +732,52 @@ app.get('/api/auth/user/:id', async (req, res) => {
 // Place Bet (Server-authoritative clock lock)
 app.post('/api/game/bet', (req, res) => {
   const { userId, room, selection, amount } = req.body;
-  const targetRoom = room || 'WINGO_30S';
+  const targetRoom = String(room || 'WINGO_30S').trim();
   const { period, isLocked } = getActivePeriod(targetRoom);
 
   if (isLocked) {
     return res.status(400).json({ error: 'Bidding is locked for calculation in the last 5 seconds of the round!' });
   }
 
-  if (!userId || !selection || !amount || amount <= 0) {
-    return res.status(400).json({ error: 'Invalid bet request details' });
+  // Strict Validation against Request Tampering (Burp Suite / Postman attacks)
+  const ALLOWED_ROOMS = ['WINGO_30S', 'WINGO_1M', 'WINGO_3M', 'WINGO_5M'];
+  const ALLOWED_SELECTIONS = ['GREEN', 'RED', 'VIOLET', 'BIG', 'SMALL', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+  if (!ALLOWED_ROOMS.includes(targetRoom)) {
+    return res.status(400).json({ error: 'Security Violation: Invalid game room selected.' });
+  }
+
+  const cleanSelection = String(selection || '').toUpperCase().trim();
+  if (!cleanSelection || !ALLOWED_SELECTIONS.includes(cleanSelection)) {
+    return res.status(400).json({ error: 'Security Violation: Invalid bet selection.' });
+  }
+
+  const numAmount = Number(amount);
+  if (!numAmount || isNaN(numAmount) || !Number.isFinite(numAmount) || numAmount < 10 || !Number.isInteger(numAmount)) {
+    return res.status(400).json({ error: 'Security Violation: Bet amount must be a positive whole integer (minimum ₹10).' });
+  }
+
+  if (!userId || typeof userId !== 'string') {
+    return res.status(400).json({ error: 'Invalid user identification provided.' });
   }
 
   const user = state.users.find(u => u.id === userId);
   if (!user) {
-    return res.status(404).json({ error: 'User not found' });
+    return res.status(404).json({ error: 'User account not found.' });
   }
 
-  if (user.balance < amount) {
-    return res.status(400).json({ error: 'Insufficient balance! Please deposit funds to place bids.' });
+  if (user.isBanned) {
+    return res.status(403).json({ error: 'Device Banned: Access restricted due to policy violation.', isBanned: true });
   }
 
-  // Deduct balance immediately on server
-  user.balance -= amount;
+  if (user.balance < numAmount) {
+    return res.status(400).json({ error: 'Insufficient wallet balance! Please deposit funds to place bids.' });
+  }
+
+  // Deduct balance immediately on server (Server-authoritative)
+  user.balance -= numAmount;
   if (user.unwageredDeposit && user.unwageredDeposit > 0) {
-    user.unwageredDeposit = Math.max(0, user.unwageredDeposit - amount);
+    user.unwageredDeposit = Math.max(0, user.unwageredDeposit - numAmount);
   }
 
   const newBet: Bet = {
@@ -784,18 +820,14 @@ app.post('/api/wallet/deposit', (req, res) => {
   const { userId, amount, utr, instantSimulated } = req.body;
   const numAmount = Number(amount);
   const cleanUtr = sanitizeInput(utr);
-  const minDep = state.settings.minDeposit || 500;
+  const minDep = state.settings.minDeposit || 300;
   const maxDep = state.settings.maxDeposit || 5000;
 
-  if (isNaN(numAmount) || numAmount < 500) {
-    return res.status(400).json({ error: '₹100 deposit option is currently NOT AVAILABLE. Minimum deposit amount is ₹500.' });
+  if (isNaN(numAmount) || !Number.isFinite(numAmount) || !Number.isInteger(numAmount) || numAmount < minDep || numAmount > maxDep) {
+    return res.status(400).json({ error: `Security Violation: Deposit amount must be a positive integer between ₹${minDep} and ₹${maxDep}` });
   }
 
-  if (!userId || !numAmount || numAmount < minDep || numAmount > maxDep) {
-    return res.status(400).json({ error: `Deposit amount must be between ₹${minDep} and ₹${maxDep}` });
-  }
-
-  if (!cleanUtr || cleanUtr.length < 8) {
+  if (!cleanUtr || cleanUtr.length < 8 || cleanUtr.length > 35) {
     return res.status(400).json({ error: 'Valid 12-digit UPI UTR / Ref Transaction ID is required!' });
   }
 
@@ -1133,8 +1165,8 @@ app.post('/api/wallet/withdraw', (req, res) => {
   const minWth = state.settings.minWithdrawal || 300;
   const maxWth = state.settings.maxWithdrawal || 300000;
 
-  if (!userId || !amount || amount < minWth || amount > maxWth) {
-    return res.status(400).json({ error: `Withdrawal amount must be between ₹${minWth} and ₹${maxWth.toLocaleString('en-IN')}` });
+  if (isNaN(numAmount) || !Number.isFinite(numAmount) || !Number.isInteger(numAmount) || numAmount < minWth || numAmount > maxWth) {
+    return res.status(400).json({ error: `Security Violation: Withdrawal amount must be a positive integer between ₹${minWth} and ₹${maxWth.toLocaleString('en-IN')}` });
   }
 
   const user = state.users.find(u => u.id === userId);
