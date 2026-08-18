@@ -4,14 +4,35 @@ dotenv.config();
 
 import { User, GameRound, Bet, DepositRequest, WithdrawalRequest, SystemSettings, RoomType } from '../types';
 
+function sanitizeUrl(raw?: string): string {
+  if (!raw || typeof raw !== 'string') return 'https://placeholder.supabase.co';
+  const trimmed = raw.trim().replace(/^["']|["']$/g, '');
+  if (!trimmed || trimmed.includes('placeholder')) return 'https://placeholder.supabase.co';
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    return `https://${trimmed}`;
+  }
+  try {
+    new URL(trimmed);
+    return trimmed;
+  } catch {
+    return 'https://placeholder.supabase.co';
+  }
+}
+
+function sanitizeKey(raw?: string): string {
+  if (!raw || typeof raw !== 'string') return 'placeholder-key';
+  return raw.trim().replace(/^["']|["']$/g, '');
+}
+
 // Supabase Credentials (from process.env)
-export const SUPABASE_URL = process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
-export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'placeholder-key';
+export const SUPABASE_URL = sanitizeUrl(process.env.SUPABASE_URL);
+export const SUPABASE_ANON_KEY = sanitizeKey(process.env.SUPABASE_ANON_KEY);
 
 export const isSupabaseConfigured = Boolean(
-  process.env.SUPABASE_URL &&
-  process.env.SUPABASE_ANON_KEY &&
-  !process.env.SUPABASE_URL.includes('placeholder')
+  SUPABASE_URL &&
+  SUPABASE_ANON_KEY &&
+  !SUPABASE_URL.includes('placeholder') &&
+  !SUPABASE_ANON_KEY.includes('placeholder')
 );
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
