@@ -1,0 +1,2 @@
+# Node.js Express Application
+# This file prevents build errors if Render defaults to a Python environment build command.
