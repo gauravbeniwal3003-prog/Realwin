@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { User, GameRound, Bet, DepositRequest, WithdrawalRequest, SystemSettings, RoomType } from '../types';
+import { User, GameRound, Bet, DepositRequest, WithdrawalRequest, SystemSettings, RoomType } from '../types.ts';
 
 function sanitizeUrl(raw?: string): string {
   if (!raw || typeof raw !== 'string') return 'https://placeholder.supabase.co';

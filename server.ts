@@ -14,7 +14,7 @@ import {
   SystemSettings,
   RoomType,
   BetSelection,
-} from './src/types';
+} from './src/types.ts';
 
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
@@ -33,10 +33,21 @@ import {
   saveWithdrawalToSupabase,
   loadSystemSettingsFromSupabase,
   saveSystemSettingsToSupabase,
-} from './src/lib/serverSupabase';
+} from './src/lib/serverSupabase.ts';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+// Security: Enable CORS for cross-domain API access
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
 // Handle path normalization FIRST for serverless / Vercel rewrites (only for API subpaths)
 app.use((req, res, next) => {
