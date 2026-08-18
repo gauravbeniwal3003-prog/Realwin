@@ -39,6 +39,9 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Handle path normalization FIRST for serverless / Vercel rewrites (only for API subpaths)
 app.use((req, res, next) => {
+  if (req.originalUrl && req.originalUrl.startsWith('/api/')) {
+    req.url = req.originalUrl;
+  }
   const currentUrl = req.url || '';
   if (
     currentUrl &&
