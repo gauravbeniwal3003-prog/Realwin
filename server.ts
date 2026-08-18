@@ -783,8 +783,8 @@ app.post('/api/game/bet', (req, res) => {
   }
 
   const numAmount = Number(amount);
-  if (!numAmount || isNaN(numAmount) || !Number.isFinite(numAmount) || numAmount < 10 || !Number.isInteger(numAmount)) {
-    return res.status(400).json({ error: 'Security Violation: Bet amount must be a positive whole integer (minimum ₹10).' });
+  if (!numAmount || isNaN(numAmount) || !Number.isFinite(numAmount) || numAmount < 1 || !Number.isInteger(numAmount)) {
+    return res.status(400).json({ error: 'Security Violation: Bet amount must be a positive whole integer (minimum ₹1).' });
   }
 
   if (!userId || typeof userId !== 'string') {
@@ -841,7 +841,12 @@ app.post('/api/game/bet', (req, res) => {
 // Fetch User's Bets
 app.get('/api/game/my-bets/:userId', (req, res) => {
   const userId = req.params.userId;
-  const userBets = state.bets.filter(b => b.userId === userId).slice(0, 50);
+  const user = state.users.find(u => u.id === userId || u.phone === userId);
+  const idsToMatch = new Set<string>([userId]);
+  if (user?.id) idsToMatch.add(user.id);
+  if (user?.phone) idsToMatch.add(user.phone);
+
+  const userBets = state.bets.filter(b => idsToMatch.has(b.userId)).slice(0, 100);
   res.json({ bets: userBets });
 });
 
@@ -1277,8 +1282,13 @@ app.post('/api/wallet/withdraw', (req, res) => {
 // Get User Wallet Transactions
 app.get('/api/wallet/transactions/:userId', (req, res) => {
   const userId = req.params.userId;
-  const userDeps = state.deposits.filter(d => d.userId === userId);
-  const userWths = state.withdrawals.filter(w => w.userId === userId);
+  const user = state.users.find(u => u.id === userId || u.phone === userId);
+  const idsToMatch = new Set<string>([userId]);
+  if (user?.id) idsToMatch.add(user.id);
+  if (user?.phone) idsToMatch.add(user.phone);
+
+  const userDeps = state.deposits.filter(d => idsToMatch.has(d.userId) || (d.userPhone && idsToMatch.has(d.userPhone)));
+  const userWths = state.withdrawals.filter(w => idsToMatch.has(w.userId) || (w.userPhone && idsToMatch.has(w.userPhone)));
 
   res.json({
     deposits: userDeps,

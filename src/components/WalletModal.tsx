@@ -36,7 +36,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   const [activeTab, setActiveTab] = useState<'DEPOSIT' | 'WITHDRAW' | 'HISTORY'>(initialTab);
 
   // Deposit Form State
-  const [depositAmount, setDepositAmount] = useState<number>(500);
+  const [depositAmount, setDepositAmount] = useState<number>(300);
   const [utrNumber, setUtrNumber] = useState<string>('');
   const [isInstantDemo, setIsInstantDemo] = useState<boolean>(false);
   const [copiedUpi, setCopiedUpi] = useState<boolean>(false);
@@ -62,6 +62,12 @@ export const WalletModal: React.FC<WalletModalProps> = ({
 
   const handleDepositSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const minRequired = settings.minDeposit || 300;
+    if (depositAmount < minRequired) {
+      setDepositStatusMsg({ type: 'ERROR', text: `Minimum deposit amount is ₹${minRequired}` });
+      return;
+    }
+
     if (!utrNumber || utrNumber.trim().length < 8) {
       setDepositStatusMsg({ type: 'ERROR', text: 'Please enter valid 12-digit UTR/Ref transaction ID' });
       return;
@@ -267,9 +273,14 @@ export const WalletModal: React.FC<WalletModalProps> = ({
 
               {/* Amount Selection */}
               <div className="space-y-2">
-                <label className="text-xs font-extrabold text-gray-700">Select Deposit Amount (₹)</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-extrabold text-gray-700">Select Deposit Amount (₹)</label>
+                  <span className="text-[10px] font-black text-[#ff5353] bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
+                    Min ₹300
+                  </span>
+                </div>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                  {[100, 300, 500, 1000, 2000, 5000].map(amt => (
+                  {[300, 500, 1000, 2000, 5000, 10000].map(amt => (
                     <button
                       key={amt}
                       type="button"
@@ -288,7 +299,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                   type="number"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  min={settings.minDeposit}
+                  min={settings.minDeposit || 300}
                   value={depositAmount}
                   onChange={e => setDepositAmount(Number(e.target.value))}
                   className="w-full bg-white border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 font-black focus:outline-none focus:border-[#18b660]"
