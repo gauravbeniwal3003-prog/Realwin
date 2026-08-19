@@ -604,53 +604,58 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
   // Filter bets strictly for this period
   const roundBets = state.bets.filter(b => b.period === period && (b.room === room || !b.room));
 
-  // Find if this round was pre-created (e.g., as a database-saved override)
+  // Find if this round was pre-created in state.rounds
   const existingRound = state.rounds.find(r => r.period === period && (r.room === room || (!r.room && room === 'WINGO_30S')));
 
-  // Determine winning number (Priority: 1. Pre-created Round -> 2. Scheduled Period Override -> 3. Room Next-Round Override for this Period -> 4. House Profit Optimization on live bets -> 5. Deterministic global algorithm)
   let winningNum: number;
   const roomPeriodKey = `${room}:${period}`;
 
-  if (existingRound) {
-    winningNum = existingRound.number;
-    console.log(`[LOCKED DATABASE OVERRIDE APPLIED] Period #${period} (${room}) forced strictly to Pre-Created Result: ${winningNum}`);
-  } else if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[roomPeriodKey] !== undefined) {
+  // PRIORITY 1: Scheduled Period Override for room and period
+  if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[roomPeriodKey] !== undefined) {
     winningNum = Number((state as any).scheduledOverrides[roomPeriodKey].number);
     delete (state as any).scheduledOverrides[roomPeriodKey];
-    console.log(`[OVERRIDE APPLIED] Period #${period} (${room}) forced to Winner: ${winningNum} via scheduled key`);
+    delete (state as any).scheduledOverrides[period];
+    console.log(`[FORCED OVERRIDE APPLIED] Period #${period} (${room}) forced strictly to Number: ${winningNum}`);
     saveState();
-  } else if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[period] !== undefined) {
+  } 
+  // PRIORITY 2: Scheduled Override for period directly
+  else if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[period] !== undefined) {
     winningNum = Number((state as any).scheduledOverrides[period].number);
     delete (state as any).scheduledOverrides[period];
-    console.log(`[OVERRIDE APPLIED] Period #${period} forced to Winner: ${winningNum} via period key`);
+    delete (state as any).scheduledOverrides[roomPeriodKey];
+    console.log(`[FORCED OVERRIDE APPLIED] Period #${period} forced strictly to Number: ${winningNum}`);
     saveState();
-  } else if (
+  } 
+  // PRIORITY 3: Room-specific Next Round Override
+  else if (
     (state as any).roomOverrides &&
-    (state as any).roomOverrides[room] &&
-    typeof (state as any).roomOverrides[room] === 'object' &&
-    (state as any).roomOverrides[room].forPeriod === period
+    (state as any).roomOverrides[room] !== null &&
+    (state as any).roomOverrides[room] !== undefined
   ) {
-    winningNum = Number((state as any).roomOverrides[room].number);
+    const rOv = (state as any).roomOverrides[room];
+    winningNum = typeof rOv === 'object' && rOv.number !== undefined ? Number(rOv.number) : Number(rOv);
     (state as any).roomOverrides[room] = null;
-    console.log(`[OVERRIDE APPLIED] Period #${period} (${room}) forced to Winner: ${winningNum} via roomOverride forPeriod`);
+    console.log(`[FORCED ROOM OVERRIDE APPLIED] Period #${period} (${room}) forced strictly to Winner: ${winningNum}`);
     saveState();
-  } else if (
-    (state as any).roomOverrides &&
-    typeof (state as any).roomOverrides[room] === 'number'
-  ) {
-    winningNum = Number((state as any).roomOverrides[room]);
-    (state as any).roomOverrides[room] = null;
-    console.log(`[OVERRIDE APPLIED] Period #${period} (${room}) forced to Winner: ${winningNum} via simple roomOverride`);
-    saveState();
-  } else if (state.settings.manualOverrideNumber !== null && state.settings.manualOverrideNumber >= 0 && state.settings.manualOverrideNumber <= 9) {
-    winningNum = state.settings.manualOverrideNumber;
+  } 
+  // PRIORITY 4: Global Settings Manual Override
+  else if (state.settings.manualOverrideNumber !== null && state.settings.manualOverrideNumber !== undefined && state.settings.manualOverrideNumber >= 0 && state.settings.manualOverrideNumber <= 9) {
+    winningNum = Number(state.settings.manualOverrideNumber);
     state.settings.manualOverrideNumber = null;
     saveState();
-  } else if (roundBets.length > 0) {
-    // Smart Profit Optimization: Pick number yielding lowest house payout
+    console.log(`[FORCED GLOBAL OVERRIDE APPLIED] Period #${period} forced strictly to Winner: ${winningNum}`);
+  } 
+  // PRIORITY 5: Pre-existing Round in DB (if explicitly saved by admin)
+  else if (existingRound) {
+    winningNum = existingRound.number;
+    console.log(`[EXISTING ROUND PRESERVED] Period #${period} (${room}) using DB Result: ${winningNum}`);
+  } 
+  // PRIORITY 6: Smart Profit Optimization on live bets
+  else if (roundBets.length > 0) {
     winningNum = getLowestPayoutNumber(roundBets);
-  } else {
-    // Continuous deterministic algorithm (guarantees identical result for all users globally worldwide)
+  } 
+  // PRIORITY 7: Deterministic global algorithm
+  else {
     winningNum = getDeterministicRoundResult(period, room);
   }
 
@@ -814,12 +819,16 @@ app.head('/ping', (req, res) => { checkAndProcessRounds(); res.status(200).end()
 app.all('/api/cron/keepalive', handleHealthCheck);
 app.get('/api/uptime', handleHealthCheck);
 
-// Get current game state
+// Get current game state (Instant unified payload for zero-lag result popups and balance updates)
 app.get('/api/game/state', async (req, res) => {
   await checkAndProcessRounds();
   const room = (req.query.room as string) || 'WINGO_30S';
+  const userId = (req.query.userId as string || '').trim();
   const { period, secondsRemaining, isLocked, duration } = getActivePeriod(room);
   const activeNum = parseInt(period, 10);
+
+  // Ensure state.rounds are strictly sorted descending by period number
+  state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
 
   const roomRounds = state.rounds.filter(r => {
     const rNum = parseInt(r.period, 10);
@@ -829,6 +838,18 @@ app.get('/api/game/state', async (req, res) => {
   });
   const lastRound = roomRounds[0];
 
+  let freshUser: User | undefined = undefined;
+  let userBets: Bet[] | undefined = undefined;
+
+  if (userId) {
+    const matchedUser = state.users.find(u => u.id === userId || u.phone === userId);
+    if (matchedUser) {
+      freshUser = matchedUser;
+      const idsToMatch = new Set<string>([matchedUser.id, matchedUser.phone]);
+      userBets = state.bets.filter(b => idsToMatch.has(b.userId)).slice(0, 50);
+    }
+  }
+
   res.json({
     period,
     room,
@@ -836,6 +857,9 @@ app.get('/api/game/state', async (req, res) => {
     roundDurationSeconds: duration,
     isLocked,
     lastRound,
+    history: roomRounds.slice(0, 100),
+    user: freshUser,
+    myBets: userBets,
     historyCount: roomRounds.length,
     onlineUsersCount: Math.floor(Math.random() * 40) + 120,
   });
@@ -2167,6 +2191,9 @@ app.post('/api/admin/periods', async (req, res) => {
   } else {
     state.rounds.unshift(roundToUpsert);
   }
+
+  // Ensure strict descending numeric period sequence
+  state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
 
   if (state.rounds.length > 1000) {
     state.rounds = state.rounds.slice(0, 1000);

@@ -119,14 +119,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
 
   const handleSetNextOverride = async (num: number | null) => {
     try {
+      // Optimistic update for instant visual feedback on single click
+      setOverrideInfo((prev: any) => prev ? { ...prev, activeOverrideNumber: num } : prev);
       const msg = await overrideRoundNumber({
         number: num,
         room: selectedOverrideRoom,
+        period: overrideInfo?.activePeriod,
       });
       setFeedbackMsg({ type: 'SUCCESS', text: msg });
       loadOverrideData(selectedOverrideRoom);
     } catch (err: any) {
       setFeedbackMsg({ type: 'ERROR', text: err.message || 'Failed to override result' });
+      loadOverrideData(selectedOverrideRoom);
     }
   };
 

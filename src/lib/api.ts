@@ -48,8 +48,9 @@ async function handleJsonResponse(res: Response, defaultError: string) {
   return data;
 }
 
-export async function fetchGameState(room = 'WINGO_30S'): Promise<ServerGameState> {
-  const res = await fetch(`${BASE_URL}/api/game/state?room=${room}`);
+export async function fetchGameState(room = 'WINGO_30S', userId?: string): Promise<ServerGameState> {
+  const userQuery = userId ? `&userId=${encodeURIComponent(userId)}` : '';
+  const res = await fetch(`${BASE_URL}/api/game/state?room=${encodeURIComponent(room)}${userQuery}`);
   return handleJsonResponse(res, 'Failed to fetch game state');
 }
 

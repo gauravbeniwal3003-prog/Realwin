@@ -130,10 +130,30 @@ export default function App() {
     const isWin = totalPayout > 0;
     const matchedRound = history.find(r => r.period === targetPeriod);
 
+    // Fallback round builder so popup shows immediately even before history pagination loads
+    const winningNum = periodBets[0].resultNumber !== undefined ? periodBets[0].resultNumber : matchedRound?.number;
+    let colors: ('GREEN' | 'RED' | 'VIOLET')[] = matchedRound?.colors || [];
+    if (colors.length === 0 && winningNum !== undefined) {
+      if (winningNum === 0) colors = ['RED', 'VIOLET'];
+      else if (winningNum === 5) colors = ['GREEN', 'VIOLET'];
+      else if ([1, 3, 7, 9].includes(winningNum)) colors = ['GREEN'];
+      else colors = ['RED'];
+    }
+    const bigSmall = matchedRound?.bigSmall || (winningNum !== undefined && winningNum >= 5 ? 'BIG' : 'SMALL');
+    const resolvedRound: GameRound | undefined = matchedRound || (winningNum !== undefined ? {
+      period: targetPeriod,
+      room: periodBets[0].room,
+      number: winningNum,
+      colors,
+      bigSmall,
+      timestamp: Date.now(),
+      seedHash: '',
+    } : undefined);
+
     setResultModalData({
       period: targetPeriod,
       room: periodBets[0].room,
-      round: matchedRound,
+      round: resolvedRound,
       bets: periodBets,
       totalInvested,
       totalPayout,
@@ -197,41 +217,25 @@ export default function App() {
 
     try {
       const room = activeRoomRef.current;
-      const state = await fetchGameState(room);
+      const currentUid = userRef.current?.id;
+      const state = await fetchGameState(room, currentUid);
       setGameState(state);
 
-      // Check if we have any pending bets from a past period
-      const hasPastPendingBets = myBetsRef.current.some(b => {
-        const bNum = parseInt(b.period, 10);
-        const sNum = parseInt(state.period, 10);
-        return b.status === 'PENDING' && !isNaN(bNum) && !isNaN(sNum) && bNum < sNum;
-      });
+      if (state.history && state.history.length > 0) {
+        setHistory(state.history);
+      }
 
-      if (state.period !== lastPeriodIdRef.current || hasPastPendingBets) {
-        if (state.period !== lastPeriodIdRef.current) {
-          setLastPeriodId(state.period);
-          lastPeriodIdRef.current = state.period;
+      if (state.user) {
+        setUser(state.user);
+      }
 
-          try {
-            const histData = await fetchGameHistory(1, 100, room);
-            setHistory(histData.rounds);
-          } catch (_) {
-            // Ignore transient history fetch error
-          }
-        }
+      if (state.myBets) {
+        setMyBets(state.myBets);
+      }
 
-        const currentUser = userRef.current;
-        if (currentUser) {
-          try {
-            const freshUser = await fetchUser(currentUser.id);
-            setUser(freshUser);
-
-            const freshBets = await fetchMyBets(currentUser.id);
-            setMyBets(freshBets);
-          } catch (_) {
-            // Ignore transient user/bets fetch error
-          }
-        }
+      if (state.period !== lastPeriodIdRef.current) {
+        setLastPeriodId(state.period);
+        lastPeriodIdRef.current = state.period;
       }
     } catch (err: any) {
       // Suppress noisy transient network offline / "Failed to fetch" errors during continuous polling

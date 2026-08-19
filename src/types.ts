@@ -117,6 +117,9 @@ export interface ServerGameState {
   roundDurationSeconds: number;
   isLocked: boolean;
   lastRound?: GameRound;
+  history?: GameRound[];
+  user?: User;
+  myBets?: Bet[];
   historyCount: number;
   onlineUsersCount: number;
 }
