@@ -269,7 +269,18 @@ async function initSupabaseData() {
     ]);
 
     if (dbUsers && dbUsers.length > 0) state.users = dbUsers;
-    if (dbRounds && dbRounds.length > 0) state.rounds = dbRounds;
+    if (dbRounds && dbRounds.length > 0) {
+      const uniqueMap = new Map<string, GameRound>();
+      dbRounds.forEach(r => {
+        const roomKey = r.room || 'WINGO_30S';
+        const key = `${r.period}:${roomKey}`;
+        if (!uniqueMap.has(key)) {
+          uniqueMap.set(key, r);
+        }
+      });
+      state.rounds = Array.from(uniqueMap.values());
+      state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
+    }
     if (dbBets && dbBets.length > 0) state.bets = dbBets;
     if (dbDeps && dbDeps.length > 0) state.deposits = dbDeps;
     if (dbWths && dbWths.length > 0) state.withdrawals = dbWths;
@@ -315,6 +326,22 @@ function saveState() {
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
   } catch (err) {
     console.error('Error saving state:', err);
+  }
+}
+
+// Helper to add a game round and strictly maintain a sorted descending array by period number
+export function addRoundAndSort(round: GameRound) {
+  const existingIdx = state.rounds.findIndex(r => r.period === round.period && (r.room === round.room || (!r.room && round.room === 'WINGO_30S')));
+  if (existingIdx >= 0) {
+    state.rounds[existingIdx] = round;
+  } else {
+    state.rounds.push(round);
+  }
+  // Sort descending by period number strictly
+  state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
+  
+  if (state.rounds.length > 1000) {
+    state.rounds = state.rounds.slice(0, 1000);
   }
 }
 
@@ -459,23 +486,23 @@ async function resolveOrphanBets() {
         let won = false;
         let payoutMultiplier = 0;
 
-        const sel = bet.selection;
-        if (sel === 'GREEN' && colors.includes('GREEN')) {
+        const selStr = String(bet.selection).toUpperCase().trim();
+        if (selStr === 'GREEN' && colors.includes('GREEN')) {
           won = true;
           payoutMultiplier = winningNum === 5 ? 1.5 : 2;
-        } else if (sel === 'RED' && colors.includes('RED')) {
+        } else if (selStr === 'RED' && colors.includes('RED')) {
           won = true;
           payoutMultiplier = winningNum === 0 ? 1.5 : 2;
-        } else if (sel === 'VIOLET' && colors.includes('VIOLET')) {
+        } else if (selStr === 'VIOLET' && colors.includes('VIOLET')) {
           won = true;
           payoutMultiplier = 4.5;
-        } else if (sel === 'BIG' && bigSmall === 'BIG') {
+        } else if (selStr === 'BIG' && bigSmall === 'BIG') {
           won = true;
           payoutMultiplier = 2;
-        } else if (sel === 'SMALL' && bigSmall === 'SMALL') {
+        } else if (selStr === 'SMALL' && bigSmall === 'SMALL') {
           won = true;
           payoutMultiplier = 2;
-        } else if (sel === String(winningNum)) {
+        } else if (selStr === String(winningNum)) {
           won = true;
           payoutMultiplier = 9;
         }
@@ -644,23 +671,23 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     let won = false;
     let payoutMultiplier = 0;
 
-    const sel = bet.selection;
-    if (sel === 'GREEN' && colors.includes('GREEN')) {
+    const selStr = String(bet.selection).toUpperCase().trim();
+    if (selStr === 'GREEN' && colors.includes('GREEN')) {
       won = true;
       payoutMultiplier = winningNum === 5 ? 1.5 : 2;
-    } else if (sel === 'RED' && colors.includes('RED')) {
+    } else if (selStr === 'RED' && colors.includes('RED')) {
       won = true;
       payoutMultiplier = winningNum === 0 ? 1.5 : 2;
-    } else if (sel === 'VIOLET' && colors.includes('VIOLET')) {
+    } else if (selStr === 'VIOLET' && colors.includes('VIOLET')) {
       won = true;
       payoutMultiplier = 4.5;
-    } else if (sel === 'BIG' && bigSmall === 'BIG') {
+    } else if (selStr === 'BIG' && bigSmall === 'BIG') {
       won = true;
       payoutMultiplier = 2;
-    } else if (sel === 'SMALL' && bigSmall === 'SMALL') {
+    } else if (selStr === 'SMALL' && bigSmall === 'SMALL') {
       won = true;
       payoutMultiplier = 2;
-    } else if (sel === String(winningNum)) {
+    } else if (selStr === String(winningNum)) {
       won = true;
       payoutMultiplier = 9;
     }
@@ -697,6 +724,8 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     existingRound.totalBetsCount = roundBets.length;
     existingRound.totalBetsAmount = totalBetAmt;
     existingRound.timestamp = Date.now();
+    // Re-sort rounds array to guarantee sorting
+    state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
   } else {
     const newRound: GameRound = {
       period,
@@ -710,10 +739,7 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
       totalBetsAmount: totalBetAmt,
     };
 
-    state.rounds.unshift(newRound);
-    if (state.rounds.length > 1000) {
-      state.rounds = state.rounds.slice(0, 1000);
-    }
+    addRoundAndSort(newRound);
   }
 
   saveState();
@@ -1088,7 +1114,7 @@ app.post('/api/game/bet', async (req, res) => {
     userName: user.name,
     period,
     room: targetRoom as RoomType,
-    selection: selection as BetSelection,
+    selection: String(selection).toUpperCase().trim() as BetSelection,
     amount: numAmount,
     payout: 0,
     status: 'PENDING',
@@ -2220,23 +2246,23 @@ app.post('/api/admin/override-number', async (req, res) => {
     for (const bet of roundBets) {
       let won = false;
       let payoutMultiplier = 0;
-      const sel = bet.selection;
-      if (sel === 'GREEN' && colors.includes('GREEN')) {
+      const selStr = String(bet.selection).toUpperCase().trim();
+      if (selStr === 'GREEN' && colors.includes('GREEN')) {
         won = true;
         payoutMultiplier = num === 5 ? 1.5 : 2;
-      } else if (sel === 'RED' && colors.includes('RED')) {
+      } else if (selStr === 'RED' && colors.includes('RED')) {
         won = true;
         payoutMultiplier = num === 0 ? 1.5 : 2;
-      } else if (sel === 'VIOLET' && colors.includes('VIOLET')) {
+      } else if (selStr === 'VIOLET' && colors.includes('VIOLET')) {
         won = true;
         payoutMultiplier = 4.5;
-      } else if (sel === 'BIG' && bigSmall === 'BIG') {
+      } else if (selStr === 'BIG' && bigSmall === 'BIG') {
         won = true;
         payoutMultiplier = 2;
-      } else if (sel === 'SMALL' && bigSmall === 'SMALL') {
+      } else if (selStr === 'SMALL' && bigSmall === 'SMALL') {
         won = true;
         payoutMultiplier = 2;
-      } else if (sel === String(num)) {
+      } else if (selStr === String(num)) {
         won = true;
         payoutMultiplier = 9;
       }
@@ -2310,12 +2336,7 @@ app.post('/api/admin/override-number', async (req, res) => {
     totalBetsAmount: 0,
   };
 
-  const existingIdx = state.rounds.findIndex(r => r.period === targetPeriod && (r.room === targetRoom || (!r.room && targetRoom === 'WINGO_30S')));
-  if (existingIdx >= 0) {
-    state.rounds[existingIdx] = preCreatedRound;
-  } else {
-    state.rounds.unshift(preCreatedRound);
-  }
+  addRoundAndSort(preCreatedRound);
 
   saveState();
   await saveGameRoundToSupabase(preCreatedRound);

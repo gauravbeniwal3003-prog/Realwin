@@ -188,23 +188,6 @@ export default function App() {
 
   const isSyncingRef = useRef<boolean>(false);
 
-  // Smooth client-side countdown timer between server syncs
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setGameState(prev => {
-        if (!prev) return prev;
-        if (prev.secondsRemaining <= 0) return prev;
-        const newSecs = prev.secondsRemaining - 1;
-        return {
-          ...prev,
-          secondsRemaining: newSecs,
-          isLocked: newSecs <= 5,
-        };
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
   const syncServer = useCallback(async () => {
     if (isSyncingRef.current) return;
     isSyncingRef.current = true;
@@ -247,6 +230,31 @@ export default function App() {
       isSyncingRef.current = false;
     }
   }, []);
+
+  // Smooth client-side countdown timer between server syncs
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        if (prev.secondsRemaining <= 0) {
+          syncServer();
+          return prev;
+        }
+        const newSecs = prev.secondsRemaining - 1;
+        if (newSecs === 0 || newSecs === 1) {
+          // Instantly sync server to retrieve completed round outcome
+          setTimeout(syncServer, 50);
+          setTimeout(syncServer, 500);
+        }
+        return {
+          ...prev,
+          secondsRemaining: newSecs,
+          isLocked: newSecs <= 5,
+        };
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [syncServer]);
 
   useEffect(() => {
     syncServer();

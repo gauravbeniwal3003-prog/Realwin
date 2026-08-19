@@ -197,18 +197,31 @@ export async function saveGameRoundToSupabase(round: GameRound): Promise<void> {
       total_bets_amount: Number(round.totalBetsAmount || 0),
     };
 
-    // Try standard upsert
-    let { error } = await supabase.from('game_rounds').upsert(payload, { onConflict: 'period' });
+    // Query if the round already exists to prevent duplicate key violations and duplicate row insertions
+    const { data: existing } = await supabase
+      .from('game_rounds')
+      .select('period')
+      .eq('period', String(round.period))
+      .eq('room', round.room || 'WINGO_30S')
+      .maybeSingle();
 
-    // If upsert fails (e.g. composite primary key or missing unique constraint), try insert or fallback
-    if (error) {
-      const fallbackRes = await supabase.from('game_rounds').upsert(payload);
-      if (fallbackRes.error) {
-        const insertRes = await supabase.from('game_rounds').insert(payload);
-        if (insertRes.error) {
-          console.warn('⚠️ Supabase sync notice:', insertRes.error.message);
-          return;
-        }
+    if (existing) {
+      // Update existing row
+      const { error } = await supabase
+        .from('game_rounds')
+        .update(payload)
+        .eq('period', String(round.period))
+        .eq('room', round.room || 'WINGO_30S');
+      if (error) {
+        console.warn('⚠️ Supabase update error:', error.message);
+      }
+    } else {
+      // Insert new row
+      const { error } = await supabase
+        .from('game_rounds')
+        .insert(payload);
+      if (error) {
+        console.warn('⚠️ Supabase insert error:', error.message);
       }
     }
 

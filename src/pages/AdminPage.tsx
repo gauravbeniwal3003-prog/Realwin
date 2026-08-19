@@ -1216,6 +1216,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
                   })}
                 </div>
 
+                {/* Mobile-Friendly Color & Size Quick Override Templates */}
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider block">⚡ One-Click Attribute Force Templates</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {[
+                      { label: '🟢 FORCE GREEN', num: 7, color: 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black' },
+                      { label: '🔴 FORCE RED', num: 8, color: 'bg-rose-600 hover:bg-rose-700 text-white text-xs font-black' },
+                      { label: '🟣 FORCE VIOLET', num: 0, color: 'bg-purple-600 hover:bg-purple-700 text-white text-xs font-black' },
+                      { label: '📊 FORCE BIG', num: 7, color: 'bg-amber-500 hover:bg-amber-600 text-white text-xs font-black' },
+                      { label: '📉 FORCE SMALL', num: 3, color: 'bg-blue-500 hover:bg-blue-600 text-white text-xs font-black' },
+                    ].map((btn, index) => {
+                      const isMatched = overrideInfo?.activeOverrideNumber === btn.num;
+                      return (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => handleSetNextOverride(btn.num)}
+                          className={`py-3 px-3 rounded-2xl text-center transition flex items-center justify-center gap-1 active:scale-95 border ${
+                            isMatched
+                              ? 'ring-4 ring-amber-400 border-amber-500 bg-amber-500/15 text-amber-900 font-black scale-105 shadow-sm'
+                              : `${btn.color} border-transparent`
+                          }`}
+                        >
+                          <span>{btn.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Explicit Statement Banner for Selected Result & Target Period */}
                 {overrideInfo?.activeOverrideNumber !== null && overrideInfo?.activeOverrideNumber !== undefined ? (
                   <div className="p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-400 space-y-2 shadow-xs">
