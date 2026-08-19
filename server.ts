@@ -305,12 +305,12 @@ initSupabaseData();
 // Helper to save state
 function saveState() {
   try {
-    // Keep max 50 rounds and max 100 bets in file to keep file size lightweight
-    if (state.rounds.length > 50) {
-      state.rounds = state.rounds.slice(0, 50);
+    // Keep max 1000 rounds and max 1000 bets in memory & JSON file to keep full history intact
+    if (state.rounds.length > 1000) {
+      state.rounds = state.rounds.slice(0, 1000);
     }
-    if (state.bets.length > 100) {
-      state.bets = state.bets.slice(0, 100);
+    if (state.bets.length > 1000) {
+      state.bets = state.bets.slice(0, 1000);
     }
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
   } catch (err) {
@@ -375,25 +375,125 @@ function getActivePeriod(room: string = 'WINGO_30S'): { period: string; secondsR
   return { period, secondsRemaining, isLocked, duration };
 }
 
-let lastProcessedMap: Record<string, string> = {};
-
-// Round completion check loop (runs every 1 second or on every API call)
+// Sequential gap catchup looper to guarantee ZERO skipped periods
 export async function checkAndProcessRounds() {
-  const rooms = ['WINGO_30S', 'WINGO_1M'];
+  const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M'];
   for (const r of rooms) {
-    const { period, secondsRemaining, duration } = getActivePeriod(r);
-    const prevPeriod = getPreviousPeriodStr(period);
-    if (!state.rounds.some(rd => rd.period === prevPeriod && rd.room === (r as RoomType))) {
-      await processRoundResult(prevPeriod, r as RoomType);
-      lastProcessedMap[r] = period;
+    const { period: currentPeriod } = getActivePeriod(r);
+    const currentNum = parseInt(currentPeriod, 10);
+    if (isNaN(currentNum)) continue;
+
+    // Find the most recent completed period in state.rounds for this room
+    const roomRounds = state.rounds.filter(rd => rd.room === r || (!rd.room && r === 'WINGO_30S'));
+    let lastProcessedNum = 0;
+    if (roomRounds.length > 0) {
+      lastProcessedNum = Math.max(...roomRounds.map(rd => parseInt(rd.period, 10)).filter(n => !isNaN(n)));
+    }
+
+    if (lastProcessedNum === 0 || lastProcessedNum >= currentNum) {
+      lastProcessedNum = currentNum - 1;
+    }
+
+    // Catch up all missing periods sequentially (up to 50 max catchup rounds per turn)
+    const catchupLimit = Math.min(currentNum - 1, lastProcessedNum + 50);
+    for (let pNum = lastProcessedNum + 1; pNum <= catchupLimit; pNum++) {
+      const pStr = String(pNum);
+      if (!state.rounds.some(rd => rd.period === pStr && (rd.room === r || (!rd.room && r === 'WINGO_30S')))) {
+        await processRoundResult(pStr, r);
+      }
+    }
+  }
+
+  // Also resolve any orphan pending bets for past periods
+  await resolveOrphanBets();
+}
+
+// Background Interval for persistent process (Every 1 second)
+setInterval(async () => {
+  try {
+    await checkAndProcessRounds();
+  } catch (err) {
+    console.error('Error in background round processing interval:', err);
+  }
+}, 1000);
+
+// Resolve orphan pending bets for past completed periods
+async function resolveOrphanBets() {
+  const pendingBets = state.bets.filter(b => b.status === 'PENDING');
+  if (pendingBets.length === 0) return;
+
+  const { period: active30 } = getActivePeriod('WINGO_30S');
+  const { period: active1m } = getActivePeriod('WINGO_1M');
+
+  for (const bet of pendingBets) {
+    const betRoom: RoomType = (bet.room as RoomType) || 'WINGO_30S';
+    const activePeriod = betRoom === 'WINGO_1M' ? active1m : active30;
+
+    const betNum = parseInt(bet.period, 10);
+    const activeNum = parseInt(activePeriod, 10);
+
+    if (!isNaN(betNum) && !isNaN(activeNum) && betNum < activeNum) {
+      // Find or generate round for this past period
+      let round = state.rounds.find(r => r.period === bet.period && (r.room === betRoom || !r.room));
+      if (!round) {
+        await processRoundResult(bet.period, betRoom);
+      } else {
+        // Evaluate bet against existing round
+        const winningNum = round.number;
+        const colors = round.colors;
+        const bigSmall = round.bigSmall;
+
+        let won = false;
+        let payoutMultiplier = 0;
+
+        const sel = bet.selection;
+        if (sel === 'GREEN' && colors.includes('GREEN')) {
+          won = true;
+          payoutMultiplier = winningNum === 5 ? 1.5 : 2;
+        } else if (sel === 'RED' && colors.includes('RED')) {
+          won = true;
+          payoutMultiplier = winningNum === 0 ? 1.5 : 2;
+        } else if (sel === 'VIOLET' && colors.includes('VIOLET')) {
+          won = true;
+          payoutMultiplier = 4.5;
+        } else if (sel === 'BIG' && bigSmall === 'BIG') {
+          won = true;
+          payoutMultiplier = 2;
+        } else if (sel === 'SMALL' && bigSmall === 'SMALL') {
+          won = true;
+          payoutMultiplier = 2;
+        } else if (sel === String(winningNum)) {
+          won = true;
+          payoutMultiplier = 9;
+        }
+
+        bet.status = won ? 'WON' : 'LOST';
+        bet.resultNumber = winningNum;
+        bet.multiplier = payoutMultiplier;
+
+        const u = state.users.find(usr => usr.id === bet.userId || usr.phone === bet.userId);
+
+        if (won) {
+          const winAmount = Math.floor(bet.amount * payoutMultiplier);
+          bet.payout = winAmount;
+
+          if (u) {
+            u.balance += winAmount;
+            bet.payoutBalanceAfter = u.balance;
+            console.log(`[ORPHAN BET RESOLVED & CREDITED] User ${u.phone} WON ₹${winAmount} on Period ${bet.period}!`);
+            await saveUserToSupabase(u);
+          }
+        } else {
+          bet.payout = 0;
+          if (u) bet.payoutBalanceAfter = u.balance;
+        }
+
+        saveState();
+        await saveBetToSupabase(bet);
+      }
     }
   }
 }
-
-// Background Interval for persistent process
-setInterval(async () => {
-  await checkAndProcessRounds();
-}, 1000);
 
 function getPreviousPeriodStr(currentPeriodStr: string): string {
   const num = parseInt(currentPeriodStr, 10);
@@ -454,33 +554,58 @@ function getLowestPayoutNumber(roundBets: Bet[]): number {
   return bestNumbers[randomIndex];
 }
 
-async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') {
-  // Filter bets for this round
-  const roundBets = state.bets.filter(b => b.period === period || (b.room === room && b.status === 'PENDING'));
+function getDeterministicRoundResult(period: string, room: string): number {
+  const hash = crypto.createHash('sha256').update(`REALWIN-CONTINUOUS-${room}-${period}-GLOBAL`).digest('hex');
+  const intVal = parseInt(hash.slice(-4), 16);
+  return intVal % 10;
+}
 
-  // Determine winning number (Priority: 1. Scheduled Period Override -> 2. Room Next-Round Override -> 3. Global Override -> 4. House Profit Optimization)
+async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') {
+  // Filter bets strictly for this period
+  const roundBets = state.bets.filter(b => b.period === period && (b.room === room || !b.room));
+
+  // Determine winning number (Priority: 1. Scheduled Period Override -> 2. Room Next-Round Override for this Period -> 3. House Profit Optimization on live bets -> 4. Deterministic global algorithm)
   let winningNum: number;
   const roomPeriodKey = `${room}:${period}`;
 
-  if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[roomPeriodKey]) {
-    winningNum = (state as any).scheduledOverrides[roomPeriodKey].number;
+  if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[roomPeriodKey] !== undefined) {
+    winningNum = Number((state as any).scheduledOverrides[roomPeriodKey].number);
     delete (state as any).scheduledOverrides[roomPeriodKey];
+    console.log(`[OVERRIDE APPLIED] Period #${period} (${room}) forced to Winner: ${winningNum} via scheduled key`);
     saveState();
-  } else if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[period]) {
-    winningNum = (state as any).scheduledOverrides[period].number;
+  } else if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[period] !== undefined) {
+    winningNum = Number((state as any).scheduledOverrides[period].number);
     delete (state as any).scheduledOverrides[period];
+    console.log(`[OVERRIDE APPLIED] Period #${period} forced to Winner: ${winningNum} via period key`);
     saveState();
-  } else if ((state as any).roomOverrides && (state as any).roomOverrides[room] !== undefined && (state as any).roomOverrides[room] !== null) {
-    winningNum = (state as any).roomOverrides[room]!;
-    (state as any).roomOverrides[room] = null; // consume
+  } else if (
+    (state as any).roomOverrides &&
+    (state as any).roomOverrides[room] &&
+    typeof (state as any).roomOverrides[room] === 'object' &&
+    (state as any).roomOverrides[room].forPeriod === period
+  ) {
+    winningNum = Number((state as any).roomOverrides[room].number);
+    (state as any).roomOverrides[room] = null;
+    console.log(`[OVERRIDE APPLIED] Period #${period} (${room}) forced to Winner: ${winningNum} via roomOverride forPeriod`);
+    saveState();
+  } else if (
+    (state as any).roomOverrides &&
+    typeof (state as any).roomOverrides[room] === 'number'
+  ) {
+    winningNum = Number((state as any).roomOverrides[room]);
+    (state as any).roomOverrides[room] = null;
+    console.log(`[OVERRIDE APPLIED] Period #${period} (${room}) forced to Winner: ${winningNum} via simple roomOverride`);
     saveState();
   } else if (state.settings.manualOverrideNumber !== null && state.settings.manualOverrideNumber >= 0 && state.settings.manualOverrideNumber <= 9) {
     winningNum = state.settings.manualOverrideNumber;
-    state.settings.manualOverrideNumber = null; // reset override after use
+    state.settings.manualOverrideNumber = null;
     saveState();
-  } else {
+  } else if (roundBets.length > 0) {
     // Smart Profit Optimization: Pick number yielding lowest house payout
     winningNum = getLowestPayoutNumber(roundBets);
+  } else {
+    // Continuous deterministic algorithm (guarantees identical result for all users globally worldwide)
+    winningNum = getDeterministicRoundResult(period, room);
   }
 
   let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
@@ -594,7 +719,8 @@ app.get('/api/health', (req, res) => {
 });
 
 // Get current game state
-app.get('/api/game/state', (req, res) => {
+app.get('/api/game/state', async (req, res) => {
+  await checkAndProcessRounds();
   const room = (req.query.room as string) || 'WINGO_30S';
   const { period, secondsRemaining, isLocked, duration } = getActivePeriod(room);
   const roomRounds = state.rounds.filter(r => r.room === room || !r.room);
@@ -613,7 +739,8 @@ app.get('/api/game/state', (req, res) => {
 });
 
 // Fetch round history (up to 1000)
-app.get('/api/game/history', (req, res) => {
+app.get('/api/game/history', async (req, res) => {
+  await checkAndProcessRounds();
   const page = parseInt(req.query.page as string || '1', 10);
   const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 100);
   const room = (req.query.room as string) || 'WINGO_30S';
@@ -944,6 +1071,7 @@ app.post('/api/game/bet', async (req, res) => {
 
 // Fetch User's Bets (Up to 100 historical records from Supabase & Memory State)
 app.get('/api/game/my-bets/:userId', async (req, res) => {
+  await checkAndProcessRounds();
   const userId = req.params.userId;
   const user = state.users.find(u => u.id === userId || u.phone === userId);
   const idsToMatch = new Set<string>([userId]);
@@ -976,12 +1104,18 @@ app.get('/api/game/my-bets/:userId', async (req, res) => {
           createdAt: Number(b.created_at),
           multiplier: Number(b.multiplier || 0),
           resultNumber: b.result_number !== null && b.result_number !== undefined ? Number(b.result_number) : undefined,
+          payoutBalanceAfter: b.payout_balance_after !== null && b.payout_balance_after !== undefined ? Number(b.payout_balance_after) : undefined,
         }));
 
-        // Merge memory state and DB bets, deduplicating by ID
+        // Merge memory state and DB bets, preferring finished status (WON/LOST) over PENDING
         const map = new Map<string, Bet>();
         dbBets.forEach(b => map.set(b.id, b));
-        userBets.forEach(b => map.set(b.id, b)); // Memory state takes precedence for in-flight pending status
+        userBets.forEach(memBet => {
+          const existing = map.get(memBet.id);
+          if (!existing || memBet.status !== 'PENDING' || existing.status === 'PENDING') {
+            map.set(memBet.id, memBet);
+          }
+        });
         userBets = Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
       }
     } catch (dbErr) {
@@ -1946,8 +2080,20 @@ app.get('/api/admin/override-info', (req, res) => {
   const roomOverrides = (state as any).roomOverrides || {};
   const scheduledOverrides = (state as any).scheduledOverrides || {};
 
-  const roomOverride = roomOverrides[room] ?? null;
+  let roomOverride: number | null = null;
+  if (roomOverrides[room]) {
+    if (typeof roomOverrides[room] === 'object' && roomOverrides[room].forPeriod === period) {
+      roomOverride = Number(roomOverrides[room].number);
+    } else if (typeof roomOverrides[room] === 'number') {
+      roomOverride = Number(roomOverrides[room]);
+    }
+  }
+
   const globalOverride = state.settings.manualOverrideNumber;
+
+  const roomPeriodKey = `${room}:${period}`;
+  const scheduledForActive = scheduledOverrides[roomPeriodKey] || scheduledOverrides[period];
+  const activeOverrideNumber = scheduledForActive?.number !== undefined ? Number(scheduledForActive.number) : roomOverride ?? globalOverride ?? null;
 
   // Filter scheduled overrides for this room
   const scheduledList = Object.values(scheduledOverrides).filter(
@@ -1971,6 +2117,7 @@ app.get('/api/admin/override-info', (req, res) => {
     isLocked,
     roomOverride,
     globalOverride,
+    activeOverrideNumber,
     scheduledOverrides: scheduledList,
     allScheduledOverrides: Object.values(scheduledOverrides),
     allRoomOverrides: roomOverrides,
@@ -1982,45 +2129,18 @@ app.get('/api/admin/override-info', (req, res) => {
 
 app.post('/api/admin/override-number', (req, res) => {
   const { number, room, period } = req.body;
-  const targetRoom = room || 'WINGO_30S';
+  const targetRoom = (room as RoomType) || 'WINGO_30S';
 
-  if (! (state as any).roomOverrides) (state as any).roomOverrides = {};
-  if (! (state as any).scheduledOverrides) (state as any).scheduledOverrides = {};
+  if (!(state as any).roomOverrides) (state as any).roomOverrides = {};
+  if (!(state as any).scheduledOverrides) (state as any).scheduledOverrides = {};
 
-  // Case 1: Specific Period Schedule Override
-  if (period && String(period).trim()) {
-    const cleanPeriod = String(period).trim();
-    if (number === null) {
-      delete (state as any).scheduledOverrides[`${targetRoom}:${cleanPeriod}`];
-      delete (state as any).scheduledOverrides[cleanPeriod];
-      saveState();
-      return res.json({
-        success: true,
-        message: `Cleared scheduled override for Period #${cleanPeriod}`,
-      });
-    }
+  const { period: currentActivePeriod } = getActivePeriod(targetRoom);
+  const targetPeriod = (period && String(period).trim()) ? String(period).trim() : currentActivePeriod;
 
-    const num = Number(number);
-    if (isNaN(num) || num < 0 || num > 9) {
-      return res.status(400).json({ error: 'Winning number must be between 0 and 9' });
-    }
-
-    const key = `${targetRoom}:${cleanPeriod}`;
-    (state as any).scheduledOverrides[key] = {
-      period: cleanPeriod,
-      room: targetRoom,
-      number: num,
-      createdAt: Date.now(),
-    };
-    saveState();
-    return res.json({
-      success: true,
-      message: `Successfully scheduled result ${num} for Period #${cleanPeriod} (${targetRoom === 'WINGO_30S' ? '30s' : targetRoom === 'WINGO_1M' ? '1 Min' : targetRoom})!`,
-    });
-  }
-
-  // Case 2: Next Immediate Round Override
-  if (number === null) {
+  // Case 1: Clear Override
+  if (number === null || number === undefined || number === '') {
+    delete (state as any).scheduledOverrides[`${targetRoom}:${targetPeriod}`];
+    delete (state as any).scheduledOverrides[targetPeriod];
     (state as any).roomOverrides[targetRoom] = null;
     state.settings.manualOverrideNumber = null;
     saveState();
@@ -2028,7 +2148,7 @@ app.post('/api/admin/override-number', (req, res) => {
     return res.json({
       success: true,
       manualOverrideNumber: null,
-      message: `Auto fair-play mode restored for ${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom}.`,
+      message: `Auto fair-play mode restored for Period #${targetPeriod} (${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom}).`,
     });
   }
 
@@ -2037,13 +2157,33 @@ app.post('/api/admin/override-number', (req, res) => {
     return res.status(400).json({ error: 'Winning number must be between 0 and 9' });
   }
 
-  (state as any).roomOverrides[targetRoom] = num;
+  const key = `${targetRoom}:${targetPeriod}`;
+  (state as any).scheduledOverrides[key] = {
+    period: targetPeriod,
+    room: targetRoom,
+    number: num,
+    createdAt: Date.now(),
+  };
+  (state as any).scheduledOverrides[targetPeriod] = {
+    period: targetPeriod,
+    room: targetRoom,
+    number: num,
+    createdAt: Date.now(),
+  };
+  (state as any).roomOverrides[targetRoom] = {
+    number: num,
+    forPeriod: targetPeriod,
+  };
+
   saveState();
+
+  console.log(`[ADMIN OVERRIDE CONFIGURED] Period #${targetPeriod} (${targetRoom}) set to Winner: ${num}`);
 
   return res.json({
     success: true,
+    targetPeriod,
     manualOverrideNumber: num,
-    message: `Next round winning result for ${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom} set to Number ${num}!`,
+    message: `Result for Period #${targetPeriod} (${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom}) is strictly locked to Number ${num}!`,
   });
 });
 

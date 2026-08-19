@@ -1156,14 +1156,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
                       <span>Option 1: Quick Next Round Result Override</span>
                     </h4>
                     <p className="text-xs text-gray-500 font-medium">
-                      Select winning number for the IMMEDIATELY ending next round of {selectedOverrideRoom === 'WINGO_30S' ? '30s Window' : selectedOverrideRoom === 'WINGO_1M' ? '1 Min Window' : selectedOverrideRoom}.
+                      Select winning number for Period <span className="font-mono font-bold text-gray-800">#{overrideInfo?.activePeriod || '...'}</span> ({selectedOverrideRoom === 'WINGO_30S' ? '30s Window' : '1 Min Window'}).
                     </p>
                   </div>
 
-                  {overrideInfo?.roomOverride !== null && overrideInfo?.roomOverride !== undefined && (
-                    <div className="bg-amber-100 border border-amber-300 text-amber-900 px-3 py-1 rounded-full text-xs font-black flex items-center gap-2">
+                  {(overrideInfo?.activeOverrideNumber !== null && overrideInfo?.activeOverrideNumber !== undefined) && (
+                    <div className="bg-amber-100 border border-amber-300 text-amber-900 px-3 py-1 rounded-full text-xs font-black flex items-center gap-2 animate-pulse">
                       <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-                      <span>Next Round Queued: Number {overrideInfo.roomOverride}</span>
+                      <span>Target Period #{overrideInfo?.activePeriod}: Number {overrideInfo.activeOverrideNumber}</span>
                       <button
                         onClick={() => handleSetNextOverride(null)}
                         className="ml-1 text-xs text-rose-600 hover:underline font-bold"
@@ -1186,25 +1186,79 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
                     { num: 7, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'BIG' },
                     { num: 8, label: 'Red', color: 'bg-red-500 text-white', tag: 'BIG' },
                     { num: 9, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'BIG' },
-                  ].map(item => (
-                    <button
-                      key={item.num}
-                      type="button"
-                      onClick={() => handleSetNextOverride(item.num)}
-                      className={`p-3 rounded-2xl border flex flex-col items-center justify-between gap-1 transition shadow-xs active:scale-95 ${
-                        overrideInfo?.roomOverride === item.num
-                          ? 'ring-4 ring-amber-400 border-amber-500 scale-105'
-                          : 'hover:border-gray-400'
-                      }`}
-                    >
-                      <div className={`w-9 h-9 rounded-full ${item.color} flex items-center justify-center font-black text-lg shadow-sm`}>
-                        {item.num}
-                      </div>
-                      <span className="text-[10px] font-black text-gray-700 uppercase">{item.label}</span>
-                      <span className="text-[9px] font-bold text-gray-500 bg-gray-200 px-2 py-0.2 rounded-full">{item.tag}</span>
-                    </button>
-                  ))}
+                  ].map(item => {
+                    const isForced = overrideInfo?.activeOverrideNumber === item.num;
+                    return (
+                      <button
+                        key={item.num}
+                        type="button"
+                        onClick={() => handleSetNextOverride(item.num)}
+                        className={`p-3 rounded-2xl border flex flex-col items-center justify-between gap-1 transition shadow-xs relative overflow-hidden active:scale-95 ${
+                          isForced
+                            ? 'ring-4 ring-amber-400 border-amber-500 bg-amber-500/10 scale-105 animate-pulse shadow-md'
+                            : 'hover:border-gray-400 bg-white'
+                        }`}
+                      >
+                        {isForced && (
+                          <span className="absolute -top-0.5 bg-amber-500 text-white font-black text-[8px] px-2 py-0.5 rounded-b-md shadow-xs animate-bounce tracking-widest">
+                            FORCED
+                          </span>
+                        )}
+                        <div className={`w-9 h-9 rounded-full ${item.color} flex items-center justify-center font-black text-lg shadow-sm ${isForced ? 'ring-2 ring-white animate-spin-slow' : ''}`}>
+                          {item.num}
+                        </div>
+                        <span className="text-[10px] font-black text-gray-700 uppercase">{item.label}</span>
+                        <span className={`text-[9px] font-bold px-2 py-0.2 rounded-full ${isForced ? 'bg-amber-200 text-amber-900 font-black' : 'text-gray-500 bg-gray-200'}`}>
+                          {item.tag}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
+
+                {/* Explicit Statement Banner for Selected Result & Target Period */}
+                {overrideInfo?.activeOverrideNumber !== null && overrideInfo?.activeOverrideNumber !== undefined ? (
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-400 space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2 text-amber-900 font-black text-xs sm:text-sm">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                        </span>
+                        <span>🎯 ACTIVE OVERRIDE: Number {overrideInfo.activeOverrideNumber} set for Period #{overrideInfo.activePeriod}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSetNextOverride(null)}
+                        className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl transition shadow-xs"
+                      >
+                        🔄 Cancel Override & Reset Auto
+                      </button>
+                    </div>
+                    <p className="text-xs font-bold text-amber-950 leading-relaxed">
+                      Period <span className="font-mono bg-amber-200/80 px-1.5 py-0.5 rounded font-black text-amber-900">#{overrideInfo.activePeriod}</span> ({selectedOverrideRoom === 'WINGO_30S' ? '30s Window' : '1 Min Window'}) par winner result strictly <span className="bg-amber-400 text-black px-2 py-0.5 rounded font-black font-mono">Number {overrideInfo.activeOverrideNumber}</span> severe hone wala hai. Round complete hote hi winner calculation and wallet credits automatic execute ho jayenge.
+                    </p>
+                    <div className="text-[11px] font-semibold text-amber-800 flex items-center justify-between border-t border-amber-200/80 pt-2 flex-wrap gap-2">
+                      <span>⏱️ Time Remaining: <strong className="font-mono font-black text-amber-950">{overrideInfo.secondsRemaining}s</strong></span>
+                      <span>Target Period: <strong className="font-mono font-black text-amber-950">#{overrideInfo.activePeriod}</strong></span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 space-y-1.5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-slate-800 font-extrabold text-xs sm:text-sm">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>⚡ AUTOMATIC SYSTEM ALGORITHM ACTIVE</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-2.5 py-0.5 rounded-full">
+                        Target Period #{overrideInfo?.activePeriod || '...'}
+                      </span>
+                    </div>
+                    <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                      Period <span className="font-mono font-bold text-slate-900">#{overrideInfo?.activePeriod || '...'}</span> ka result auto house-profit optimization algorithm dwara compute hoga. Agar aap direct koi specific number winner banana chahte hain, toh uper kisi bhi number (0-9) button par click karein.
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex justify-end pt-1">
                   <button
