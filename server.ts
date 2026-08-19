@@ -375,34 +375,50 @@ function getActivePeriod(room: string = 'WINGO_30S'): { period: string; secondsR
   return { period, secondsRemaining, isLocked, duration };
 }
 
+let isProcessingRounds = false;
+
 // Sequential gap catchup looper to guarantee ZERO skipped periods
 export async function checkAndProcessRounds() {
-  const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M'];
-  for (const r of rooms) {
-    const { period: currentPeriod } = getActivePeriod(r);
-    const currentNum = parseInt(currentPeriod, 10);
-    if (isNaN(currentNum)) continue;
+  if (isProcessingRounds) return;
+  isProcessingRounds = true;
+  try {
+    const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M'];
+    for (const r of rooms) {
+      const { period: currentPeriod } = getActivePeriod(r);
+      const currentNum = parseInt(currentPeriod, 10);
+      if (isNaN(currentNum)) continue;
 
-    // Find the most recent completed period in state.rounds for this room (strictly strictly < currentNum)
-    const roomRounds = state.rounds.filter(rd => rd.room === r || (!rd.room && r === 'WINGO_30S'));
-    const completedNums = roomRounds
-      .map(rd => parseInt(rd.period, 10))
-      .filter(n => !isNaN(n) && n < currentNum);
+      // Find the most recent completed period in state.rounds for this room (strictly < currentNum)
+      const roomRounds = state.rounds.filter(rd => rd.room === r || (!rd.room && r === 'WINGO_30S'));
+      const completedNums = roomRounds
+        .map(rd => parseInt(rd.period, 10))
+        .filter(n => !isNaN(n) && n < currentNum);
 
-    let lastProcessedNum = completedNums.length > 0 ? Math.max(...completedNums) : currentNum - 1;
+      let lastProcessedNum = completedNums.length > 0 ? Math.max(...completedNums) : currentNum - 1;
 
-    // Catch up all missing periods sequentially (up to 50 max catchup rounds per turn)
-    const catchupLimit = Math.min(currentNum - 1, lastProcessedNum + 50);
-    for (let pNum = lastProcessedNum + 1; pNum <= catchupLimit; pNum++) {
-      const pStr = String(pNum);
-      if (!state.rounds.some(rd => rd.period === pStr && (rd.room === r || (!rd.room && r === 'WINGO_30S')))) {
-        await processRoundResult(pStr, r);
+      // Catch up all missing periods sequentially (up to 50 max catchup rounds per turn)
+      const catchupLimit = Math.min(currentNum - 1, lastProcessedNum + 50);
+      for (let pNum = lastProcessedNum + 1; pNum <= catchupLimit; pNum++) {
+        const pStr = String(pNum);
+        
+        // Find if this round is already processed or exists in memory
+        const existingRound = state.rounds.find(rd => rd.period === pStr && (rd.room === r || (!rd.room && r === 'WINGO_30S')));
+        
+        // Also check if there are pending bets for this period and room
+        const hasPendingBets = state.bets.some(b => b.period === pStr && (b.room === r || !b.room) && b.status === 'PENDING');
+        
+        // If the round is missing OR if the round exists but there are pending bets for it
+        if (!existingRound || hasPendingBets) {
+          await processRoundResult(pStr, r);
+        }
       }
     }
-  }
 
-  // Also resolve any orphan pending bets for past periods
-  await resolveOrphanBets();
+    // Also resolve any orphan pending bets for past periods
+    await resolveOrphanBets();
+  } finally {
+    isProcessingRounds = false;
+  }
 }
 
 // Background Interval for persistent process (Every 1 second)
@@ -561,11 +577,17 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
   // Filter bets strictly for this period
   const roundBets = state.bets.filter(b => b.period === period && (b.room === room || !b.room));
 
-  // Determine winning number (Priority: 1. Scheduled Period Override -> 2. Room Next-Round Override for this Period -> 3. House Profit Optimization on live bets -> 4. Deterministic global algorithm)
+  // Find if this round was pre-created (e.g., as a database-saved override)
+  const existingRound = state.rounds.find(r => r.period === period && (r.room === room || (!r.room && room === 'WINGO_30S')));
+
+  // Determine winning number (Priority: 1. Pre-created Round -> 2. Scheduled Period Override -> 3. Room Next-Round Override for this Period -> 4. House Profit Optimization on live bets -> 5. Deterministic global algorithm)
   let winningNum: number;
   const roomPeriodKey = `${room}:${period}`;
 
-  if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[roomPeriodKey] !== undefined) {
+  if (existingRound) {
+    winningNum = existingRound.number;
+    console.log(`[LOCKED DATABASE OVERRIDE APPLIED] Period #${period} (${room}) forced strictly to Pre-Created Result: ${winningNum}`);
+  } else if ((state as any).scheduledOverrides && (state as any).scheduledOverrides[roomPeriodKey] !== undefined) {
     winningNum = Number((state as any).scheduledOverrides[roomPeriodKey].number);
     delete (state as any).scheduledOverrides[roomPeriodKey];
     console.log(`[OVERRIDE APPLIED] Period #${period} (${room}) forced to Winner: ${winningNum} via scheduled key`);
@@ -668,28 +690,38 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     }
   });
 
-  const newRound: GameRound = {
-    period,
-    room,
-    number: winningNum,
-    colors,
-    bigSmall,
-    timestamp: Date.now(),
-    seedHash,
-    totalBetsCount: roundBets.length,
-    totalBetsAmount: totalBetAmt,
-  };
+  if (existingRound) {
+    existingRound.number = winningNum;
+    existingRound.colors = colors;
+    existingRound.bigSmall = bigSmall;
+    existingRound.totalBetsCount = roundBets.length;
+    existingRound.totalBetsAmount = totalBetAmt;
+    existingRound.timestamp = Date.now();
+  } else {
+    const newRound: GameRound = {
+      period,
+      room,
+      number: winningNum,
+      colors,
+      bigSmall,
+      timestamp: Date.now(),
+      seedHash,
+      totalBetsCount: roundBets.length,
+      totalBetsAmount: totalBetAmt,
+    };
 
-  state.rounds.unshift(newRound);
-  if (state.rounds.length > 1000) {
-    state.rounds = state.rounds.slice(0, 1000);
+    state.rounds.unshift(newRound);
+    if (state.rounds.length > 1000) {
+      state.rounds = state.rounds.slice(0, 1000);
+    }
   }
 
   saveState();
   
   // Sync to Supabase Database (Must await to guarantee persistence on serverless/cloud environments)
   try {
-    await saveGameRoundToSupabase(newRound);
+    const targetRound = existingRound || state.rounds[0];
+    await saveGameRoundToSupabase(targetRound);
     for (const b of roundBets) {
       await saveBetToSupabase(b);
     }
@@ -720,8 +752,15 @@ app.get('/api/game/state', async (req, res) => {
   await checkAndProcessRounds();
   const room = (req.query.room as string) || 'WINGO_30S';
   const { period, secondsRemaining, isLocked, duration } = getActivePeriod(room);
-  const roomRounds = state.rounds.filter(r => r.room === room || !r.room);
-  const lastRound = roomRounds[0] || state.rounds[0];
+  const activeNum = parseInt(period, 10);
+
+  const roomRounds = state.rounds.filter(r => {
+    const rNum = parseInt(r.period, 10);
+    const roomMatch = r.room === room || (!r.room && room === 'WINGO_30S');
+    const isCompleted = !isNaN(rNum) && !isNaN(activeNum) && rNum < activeNum;
+    return roomMatch && isCompleted;
+  });
+  const lastRound = roomRounds[0];
 
   res.json({
     period,
@@ -741,9 +780,16 @@ app.get('/api/game/history', async (req, res) => {
   const page = parseInt(req.query.page as string || '1', 10);
   const limit = Math.min(parseInt(req.query.limit as string || '20', 10), 100);
   const room = (req.query.room as string) || 'WINGO_30S';
+  const { period: activePeriod } = getActivePeriod(room);
+  const activeNum = parseInt(activePeriod, 10);
 
   const startIndex = (page - 1) * limit;
-  const filtered = state.rounds.filter(r => r.room === room || !r.room);
+  const filtered = state.rounds.filter(r => {
+    const rNum = parseInt(r.period, 10);
+    const roomMatch = r.room === room || (!r.room && room === 'WINGO_30S');
+    const isCompleted = !isNaN(rNum) && !isNaN(activeNum) && rNum < activeNum;
+    return roomMatch && isCompleted;
+  });
   const paginated = filtered.slice(startIndex, startIndex + limit);
 
   res.json({
@@ -2244,15 +2290,43 @@ app.post('/api/admin/override-number', async (req, res) => {
     forPeriod: targetPeriod,
   };
 
-  saveState();
+  // Pre-create the future/current round and save it to Supabase immediately so it's 100% persisted across all serverless nodes
+  let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
+  if (num === 0) colors = ['RED', 'VIOLET'];
+  else if (num === 5) colors = ['GREEN', 'VIOLET'];
+  else if ([1, 3, 7, 9].includes(num)) colors = ['GREEN'];
+  else colors = ['RED'];
+  const bigSmall = num >= 5 ? 'BIG' : 'SMALL';
 
-  console.log(`[ADMIN OVERRIDE CONFIGURED] Period #${targetPeriod} (${targetRoom}) set to Winner: ${num}`);
+  const preCreatedRound: GameRound = {
+    period: targetPeriod,
+    room: targetRoom,
+    number: num,
+    colors,
+    bigSmall,
+    timestamp: Date.now(), // Will be updated to exact completion timestamp when processed
+    seedHash: crypto.createHash('sha256').update(`${targetPeriod}-${targetRoom}-FAIRPLAY-${num}`).digest('hex'),
+    totalBetsCount: 0,
+    totalBetsAmount: 0,
+  };
+
+  const existingIdx = state.rounds.findIndex(r => r.period === targetPeriod && (r.room === targetRoom || (!r.room && targetRoom === 'WINGO_30S')));
+  if (existingIdx >= 0) {
+    state.rounds[existingIdx] = preCreatedRound;
+  } else {
+    state.rounds.unshift(preCreatedRound);
+  }
+
+  saveState();
+  await saveGameRoundToSupabase(preCreatedRound);
+
+  console.log(`[ADMIN OVERRIDE CONFIGURED] Period #${targetPeriod} (${targetRoom}) set to Winner: ${num} and pre-saved to database`);
 
   return res.json({
     success: true,
     targetPeriod,
     manualOverrideNumber: num,
-    message: `Result for Period #${targetPeriod} (${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom}) is strictly locked to Number ${num}!`,
+    message: `Result for Period #${targetPeriod} (${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom}) is strictly locked and saved to database as Number ${num}!`,
   });
 });
 
