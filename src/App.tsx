@@ -11,6 +11,7 @@ import { RulesPage } from './pages/RulesPage';
 import { SupportPage } from './pages/SupportPage';
 import { ReferralPage } from './pages/ReferralPage';
 import { PolicyPage } from './pages/PolicyPage';
+import { BidHistoryPage } from './pages/BidHistoryPage';
 import { ScrollToTop } from './components/ScrollToTop';
 import { BottomNav } from './components/BottomNav';
 import { GameResultModal, GameResultModalData } from './components/GameResultModal';
@@ -562,6 +563,23 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* My Bid History & Audit Log Page */}
+        <Route
+          path="/bids"
+          element={
+            <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
+              <BidHistoryPage
+                user={user}
+                myBets={myBets}
+                history={history}
+                onRefreshUser={syncServer}
+                isRefreshing={isRefreshingUser}
+              />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/bid-history" element={<Navigate to="/bids" replace />} />
 
         {/* Compliance & Cashfree Policy Pages */}
         <Route path="/terms" element={<PolicyPage user={user} defaultTab="TERMS" />} />

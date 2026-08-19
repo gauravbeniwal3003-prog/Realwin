@@ -47,8 +47,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, onRefreshGlobal
   const [userSearch, setUserSearch] = useState<string>('');
   const [manualNumberInput, setManualNumberInput] = useState<string>('7');
   const [upiIdInput, setUpiIdInput] = useState<string>('');
-  const [minDepInput, setMinDepInput] = useState<number>(100);
-  const [minWthInput, setMinWthInput] = useState<number>(200);
+  const [minDepInput, setMinDepInput] = useState<number>(300);
+  const [minWthInput, setMinWthInput] = useState<number>(300);
 
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'SUCCESS' | 'ERROR'; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);

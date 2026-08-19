@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '../components/Header';
-import { Wallet, Copy, Check, ArrowDownCircle, ArrowUpCircle, AlertCircle, Clock, CheckCircle2, Building, Smartphone, Zap, CreditCard } from 'lucide-react';
+import { Wallet, Copy, Check, ArrowDownCircle, ArrowUpCircle, AlertCircle, Clock, CheckCircle2, Building, Smartphone, Zap, CreditCard, Lock } from 'lucide-react';
 import { User, DepositRequest, WithdrawalRequest, SystemSettings } from '../types';
 import { createCashfreeOrder, verifyCashfreeOrder } from '../lib/api';
 
@@ -170,13 +170,75 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   // Withdrawal State
   const [withdrawAmount, setWithdrawAmount] = useState<number>(300);
   const [withdrawType, setWithdrawType] = useState<'UPI' | 'BANK'>('UPI');
-  const [withdrawUpi, setWithdrawUpi] = useState<string>('');
+  const [withdrawUpi, setWithdrawUpi] = useState<string>(user?.boundUpiId || '');
   const [accNumber, setAccNumber] = useState<string>('');
   const [ifsc, setIfsc] = useState<string>('');
   const [holderName, setHolderName] = useState<string>('');
   const [bankName, setBankName] = useState<string>('');
   const [withdrawStatusMsg, setWithdrawStatusMsg] = useState<{ type: 'SUCCESS' | 'ERROR'; text: string } | null>(null);
   const [isSubmittingWithdraw, setIsSubmittingWithdraw] = useState<boolean>(false);
+
+  // UPI Lock Change State
+  const [showChangeUpiModal, setShowChangeUpiModal] = useState<boolean>(false);
+  const [newUpiInput, setNewUpiInput] = useState<string>('');
+  const [isChangingUpi, setIsChangingUpi] = useState<boolean>(false);
+  const [changeUpiMsg, setChangeUpiMsg] = useState<{ type: 'SUCCESS' | 'ERROR'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (user?.boundUpiId) {
+      setWithdrawUpi(user.boundUpiId);
+    }
+  }, [user?.boundUpiId]);
+
+  const handleChangeUpiSubmit = async () => {
+    if (!user) return;
+    if (!newUpiInput || !newUpiInput.includes('@')) {
+      setChangeUpiMsg({ type: 'ERROR', text: 'Please enter a valid UPI ID (e.g. name@upi)' });
+      return;
+    }
+
+    if (user.balance < 500) {
+      setChangeUpiMsg({
+        type: 'ERROR',
+        text: `Insufficient balance! You need at least ₹500 in your wallet to change your locked UPI ID. Current balance: ₹${user.balance.toFixed(2)}`,
+      });
+      return;
+    }
+
+    setIsChangingUpi(true);
+    setChangeUpiMsg(null);
+
+    try {
+      const res = await fetch('/api/wallet/change-upi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, newUpiId: newUpiInput.trim().toLowerCase() }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update UPI ID');
+      }
+
+      setChangeUpiMsg({
+        type: 'SUCCESS',
+        text: data.message || `₹500 fee deducted. Your UPI ID has been updated to ${newUpiInput}!`,
+      });
+
+      setWithdrawUpi(newUpiInput.trim().toLowerCase());
+      if (onRefreshUser) onRefreshUser();
+
+      setTimeout(() => {
+        setShowChangeUpiModal(false);
+        setChangeUpiMsg(null);
+        setNewUpiInput('');
+      }, 1500);
+    } catch (err: any) {
+      setChangeUpiMsg({ type: 'ERROR', text: err.message || 'Error updating UPI ID' });
+    } finally {
+      setIsChangingUpi(false);
+    }
+  };
 
   // Calculate User Approved Deposits & Balances
   const totalUserApprovedDeposits = deposits
@@ -602,24 +664,139 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               </div>
 
               <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm space-y-3">
-                <label className="text-xs font-black text-gray-800 uppercase tracking-wider block">Payout Method: UPI ID</label>
-                <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-gray-800 uppercase tracking-wider block">Payout Method: UPI ID</label>
+                  {user?.boundUpiId ? (
+                    <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <Lock className="w-3 h-3 text-amber-700" />
+                      LOCKED TO ACCOUNT
+                    </span>
+                  ) : (
+                    <span className="bg-blue-50 text-blue-700 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                      Auto-Locks on 1st Request
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-2 pt-1">
                   <label className="text-xs font-extrabold text-gray-700">Your Receiving UPI ID</label>
-                  <input
-                    type="text"
-                    inputMode="email"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    placeholder="e.g. 9876543210@paytm or name@upi"
-                    value={withdrawUpi}
-                    onChange={e => setWithdrawUpi(e.target.value.trim().toLowerCase())}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-900 font-bold placeholder-gray-400 focus:outline-none focus:border-[#ff5353]"
-                  />
-                  <p className="text-[10px] text-gray-500 font-medium">
-                    Withdrawals are processed directly to your UPI ID (GPay, PhonePe, Paytm, BHIM).
-                  </p>
+                  
+                  {user?.boundUpiId ? (
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          readOnly
+                          value={user.boundUpiId}
+                          className="w-full bg-gray-100 border border-gray-300 rounded-2xl px-4 py-3 text-sm text-gray-800 font-extrabold cursor-not-allowed pr-10"
+                        />
+                        <Lock className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+                      </div>
+
+                      {/* Locked Info Banner & Unlock Action */}
+                      <div className="bg-amber-50/80 border border-amber-200/90 p-3 rounded-2xl space-y-2 text-xs">
+                        <div className="text-[11px] text-amber-900 font-medium leading-relaxed">
+                          🔒 Your account is bound to <strong className="font-extrabold text-amber-950">{user.boundUpiId}</strong>. Once set, UPI ID cannot be changed freely.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setNewUpiInput(''); setChangeUpiMsg(null); setShowChangeUpiModal(true); }}
+                          className="w-full py-2 bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 hover:from-amber-600 hover:to-amber-800 text-white font-extrabold text-xs rounded-xl shadow-xs transition active:scale-95 flex items-center justify-center gap-1.5"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Unlock & Change UPI ID (Costs ₹500)</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="text"
+                        inputMode="email"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        placeholder="e.g. 9876543210@paytm or name@upi"
+                        value={withdrawUpi}
+                        onChange={e => setWithdrawUpi(e.target.value.trim().toLowerCase())}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-900 font-bold placeholder-gray-400 focus:outline-none focus:border-[#ff5353]"
+                      />
+                      <p className="text-[10px] text-gray-500 font-medium mt-1">
+                        🔒 Note: This UPI ID will be permanently locked to your account after your first request. Future changes will cost ₹500.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* CHANGE LOCKED UPI ID MODAL */}
+              {showChangeUpiModal && (
+                <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+                  <div className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl animate-scaleUp">
+                    <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                      <h3 className="font-extrabold text-sm text-gray-900 flex items-center gap-1.5">
+                        <Lock className="w-4 h-4 text-[#ff5353]" />
+                        <span>Change Bound UPI ID (₹500 Fee)</span>
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setShowChangeUpiModal(false)}
+                        className="text-gray-400 hover:text-gray-600 font-bold text-lg p-1"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="space-y-2.5 text-xs text-gray-700 font-medium">
+                      <div className="bg-amber-50 border border-amber-200 p-3 rounded-2xl text-amber-950 font-semibold text-[11px] leading-relaxed">
+                        ⚠️ Updating your locked UPI ID requires a one-time <strong>₹500 fee</strong> deducted directly from your wallet balance.
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-extrabold text-gray-800 block text-xs">Enter New Receiving UPI ID</label>
+                        <input
+                          type="text"
+                          inputMode="email"
+                          autoCapitalize="none"
+                          placeholder="e.g. newupi@okaxis or 9876543210@ybl"
+                          value={newUpiInput}
+                          onChange={e => setNewUpiInput(e.target.value.trim().toLowerCase())}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-xs font-bold text-gray-900 focus:outline-none focus:border-[#ff5353]"
+                        />
+                      </div>
+
+                      <div className="flex justify-between items-center text-[11px] bg-gray-50 p-2 rounded-xl font-bold border border-gray-100">
+                        <span className="text-gray-500">Your Wallet Balance:</span>
+                        <span className="text-gray-900 font-mono font-black">₹{(user?.balance || 0).toFixed(2)}</span>
+                      </div>
+                    </div>
+
+                    {changeUpiMsg && (
+                      <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${changeUpiMsg.type === 'SUCCESS' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'}`}>
+                        {changeUpiMsg.type === 'SUCCESS' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                        <span>{changeUpiMsg.text}</span>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowChangeUpiModal(false)}
+                        className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isChangingUpi}
+                        onClick={handleChangeUpiSubmit}
+                        className="flex-1 py-2.5 bg-[#ff5353] hover:bg-red-600 text-white font-black rounded-xl text-xs shadow-md transition active:scale-95 disabled:opacity-50"
+                      >
+                        {isChangingUpi ? 'Processing...' : 'Pay ₹500 & Change'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <button
                 type="submit"

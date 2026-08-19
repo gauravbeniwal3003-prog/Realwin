@@ -49,6 +49,8 @@ export interface User {
   createdAt: number;
   referredBy?: string;
   referralEarnings?: number;
+  boundUpiId?: string;
+  upiLocked?: boolean;
 }
 
 export interface BankAccountDetails {

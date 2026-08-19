@@ -44,7 +44,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   const [isSubmittingDeposit, setIsSubmittingDeposit] = useState<boolean>(false);
 
   // Withdrawal Form State
-  const [withdrawAmount, setWithdrawAmount] = useState<number>(500);
+  const [withdrawAmount, setWithdrawAmount] = useState<number>(300);
   const [withdrawType, setWithdrawType] = useState<'UPI' | 'BANK'>('UPI');
   const [withdrawUpi, setWithdrawUpi] = useState<string>('');
   const [accNumber, setAccNumber] = useState<string>('');

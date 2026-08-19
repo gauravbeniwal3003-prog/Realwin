@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { 
   User as UserIcon, Copy, RefreshCw, FileText, ArrowUpDown, 
-  Bell, Gift, BarChart3, Globe, ShieldCheck, Headset, ChevronRight, LogOut, Check, Wallet, Lock
+  Bell, Gift, BarChart3, Globe, ShieldCheck, Headset, ChevronRight, LogOut, Check, Wallet, Lock, Ticket
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -145,6 +145,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         {/* Menu Items */}
         <div className="bg-white rounded-2xl shadow-xs border border-gray-100 overflow-hidden divide-y divide-gray-50">
+          <div 
+            onClick={() => navigate('/bids')}
+            className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer bg-red-50/20"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-[#ff5353] text-white flex items-center justify-center shadow-xs">
+                <Ticket className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs font-black text-gray-900 block">My Bid History & Win/Loss Audit</span>
+                <span className="text-[10px] text-gray-500 font-medium">Analyze last 100 bids with exact payouts</span>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-[#ff5353]" />
+          </div>
+
           <div 
             onClick={() => navigate('/fairplay')}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"

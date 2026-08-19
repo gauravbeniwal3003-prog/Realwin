@@ -60,6 +60,8 @@ export async function loadUsersFromSupabase(): Promise<User[]> {
       createdAt: Number(u.created_at || Date.now()),
       referredBy: u.referred_by || undefined,
       referralEarnings: Number(u.referral_earnings || 0),
+      boundUpiId: u.bound_upi_id || undefined,
+      upiLocked: Boolean(u.upi_locked),
     }));
   } catch (err) {
     console.error('Error loading users from Supabase:', err);
@@ -79,6 +81,8 @@ export async function saveUserToSupabase(user: User): Promise<void> {
       created_at: user.createdAt,
       referred_by: user.referredBy || null,
       referral_earnings: user.referralEarnings || 0,
+      bound_upi_id: user.boundUpiId || null,
+      upi_locked: user.upiLocked || false,
     };
 
     let { error } = await supabase.from('users').upsert(payload, { onConflict: 'id' });

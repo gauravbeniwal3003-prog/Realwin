@@ -228,7 +228,7 @@ let state: AppState = {
     supportTelegram: 'https://t.me/realwin_official',
     supportPhone: '919876543210',
     noticeMarquee: '🚀 Welcome to RealWin! Enjoy 24/7 instant withdrawals & 5% referral bonus on deposits!',
-    signupBonus: 20,
+    signupBonus: 0,
     referralCommissionPercent: 5,
     adminPin: 'gaurav@2026#2008',
     maintenanceMode: false,
@@ -246,6 +246,9 @@ if (fs.existsSync(DATA_FILE)) {
     // Filter out old demo user and demo deposits
     state.users = state.users.filter(u => u.id !== 'usr_demo');
     state.deposits = state.deposits.filter(d => d.id !== 'dep_sample_1');
+    // Ensure minDeposit & minWithdrawal are strictly 300
+    state.settings.minDeposit = 300;
+    state.settings.minWithdrawal = 300;
     console.log(`Loaded state: ${state.rounds.length} history rounds, ${state.users.length} users.`);
   } catch (err) {
     console.error('Failed to parse saved state, using default', err);
@@ -270,7 +273,15 @@ async function initSupabaseData() {
     if (dbBets && dbBets.length > 0) state.bets = dbBets;
     if (dbDeps && dbDeps.length > 0) state.deposits = dbDeps;
     if (dbWths && dbWths.length > 0) state.withdrawals = dbWths;
-    if (dbSettings) state.settings = dbSettings;
+    if (dbSettings) {
+      state.settings = { ...dbSettings, minDeposit: 300, minWithdrawal: 300 };
+    } else {
+      state.settings.minDeposit = 300;
+      state.settings.minWithdrawal = 300;
+    }
+
+    // Save updated settings to Supabase to overwrite any legacy 500 limit
+    await saveSystemSettingsToSupabase(state.settings);
 
     console.log(`⚡ [SUPABASE SYNC OK] Active state synced with Supabase Database: ${state.users.length} Users, ${state.rounds.length} Periods (Max 1000 stored).`);
 
@@ -367,21 +378,21 @@ function getActivePeriod(room: string = 'WINGO_30S'): { period: string; secondsR
 let lastProcessedMap: Record<string, string> = {};
 
 // Round completion check loop (runs every 1 second or on every API call)
-export function checkAndProcessRounds() {
+export async function checkAndProcessRounds() {
   const rooms = ['WINGO_30S', 'WINGO_1M'];
   for (const r of rooms) {
     const { period, secondsRemaining, duration } = getActivePeriod(r);
     const prevPeriod = getPreviousPeriodStr(period);
     if (!state.rounds.some(rd => rd.period === prevPeriod && rd.room === (r as RoomType))) {
-      processRoundResult(prevPeriod, r as RoomType);
+      await processRoundResult(prevPeriod, r as RoomType);
       lastProcessedMap[r] = period;
     }
   }
 }
 
 // Background Interval for persistent process
-setInterval(() => {
-  checkAndProcessRounds();
+setInterval(async () => {
+  await checkAndProcessRounds();
 }, 1000);
 
 function getPreviousPeriodStr(currentPeriodStr: string): string {
@@ -443,7 +454,7 @@ function getLowestPayoutNumber(roundBets: Bet[]): number {
   return bestNumbers[randomIndex];
 }
 
-function processRoundResult(period: string, room: RoomType = 'WINGO_30S') {
+async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') {
   // Filter bets for this round
   const roundBets = state.bets.filter(b => b.period === period || (b.room === room && b.status === 'PENDING'));
 
@@ -548,14 +559,23 @@ function processRoundResult(period: string, room: RoomType = 'WINGO_30S') {
 
   saveState();
   
-  // Async Sync to Supabase Database (Auto-prunes to keep last 1000 period results)
-  saveGameRoundToSupabase(newRound);
-  roundBets.forEach(b => saveBetToSupabase(b));
-  state.users.forEach(u => {
-    if (roundBets.some(b => b.userId === u.id && b.status === 'WON')) {
-      saveUserToSupabase(u);
+  // Sync to Supabase Database (Must await to guarantee persistence on serverless/cloud environments)
+  try {
+    await saveGameRoundToSupabase(newRound);
+    for (const b of roundBets) {
+      await saveBetToSupabase(b);
     }
-  });
+    // Sync ALL users who placed bets in this round (both winners AND losers)
+    const participantUserIds = new Set(roundBets.map(b => b.userId));
+    for (const uid of participantUserIds) {
+      const u = state.users.find(usr => usr.id === uid);
+      if (u) {
+        await saveUserToSupabase(u);
+      }
+    }
+  } catch (syncErr) {
+    console.error('Error syncing round results to Supabase:', syncErr);
+  }
 
   console.log(`[ROUND DONE & SUPABASE SAVED] [${room}] Period: ${period} -> Winner: ${winningNum} (${colors.join('+')}, ${bigSmall}). Bets: ${roundBets.length}, Total Bet: ₹${totalBetAmt}, Payout: ₹${totalPayoutAmt}`);
 }
@@ -636,12 +656,12 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     if (!user) {
-      // Auto register with signup bonus
+      // Auto register with zero balance
       user = {
         id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
         phone: cleanPhone,
         name: `Player_${cleanPhone.slice(-4)}`,
-        balance: state.settings.signupBonus ?? 20,
+        balance: 0,
         isAdmin: cleanPhone === '9999999999',
         createdAt: Date.now(),
         referralEarnings: 0,
@@ -710,7 +730,7 @@ app.post('/api/auth/register', async (req, res) => {
       id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       phone: cleanPhone,
       name: cleanName || `Player_${cleanPhone.slice(-4)}`,
-      balance: state.settings.signupBonus ?? 20,
+      balance: 0,
       isAdmin: cleanPhone === '9999999999',
       createdAt: Date.now(),
       referredBy: referrerId,
@@ -760,7 +780,7 @@ app.get('/api/auth/user/:id', async (req, res) => {
 });
 
 // Place Bet (Server-authoritative clock lock)
-app.post('/api/game/bet', (req, res) => {
+app.post('/api/game/bet', async (req, res) => {
   const { userId, room, selection, amount } = req.body;
   const targetRoom = String(room || 'WINGO_30S').trim();
   const { period, isLocked } = getActivePeriod(targetRoom);
@@ -827,9 +847,9 @@ app.post('/api/game/bet', (req, res) => {
   state.bets.unshift(newBet);
   saveState();
 
-  // Sync to Supabase Database
-  saveBetToSupabase(newBet);
-  saveUserToSupabase(user);
+  // Sync to Supabase Database (Await to ensure database write completes before HTTP response ends)
+  await saveBetToSupabase(newBet);
+  await saveUserToSupabase(user);
 
   res.json({
     success: true,
@@ -838,20 +858,58 @@ app.post('/api/game/bet', (req, res) => {
   });
 });
 
-// Fetch User's Bets
-app.get('/api/game/my-bets/:userId', (req, res) => {
+// Fetch User's Bets (Up to 100 historical records from Supabase & Memory State)
+app.get('/api/game/my-bets/:userId', async (req, res) => {
   const userId = req.params.userId;
   const user = state.users.find(u => u.id === userId || u.phone === userId);
   const idsToMatch = new Set<string>([userId]);
   if (user?.id) idsToMatch.add(user.id);
   if (user?.phone) idsToMatch.add(user.phone);
 
-  const userBets = state.bets.filter(b => idsToMatch.has(b.userId)).slice(0, 100);
-  res.json({ bets: userBets });
+  let userBets = state.bets.filter(b => idsToMatch.has(b.userId));
+
+  // If Supabase is configured, fetch latest bets directly from Supabase DB to guarantee 100 historical records
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('bets')
+        .select('*')
+        .in('user_id', Array.from(idsToMatch))
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (!error && data && data.length > 0) {
+        const dbBets: Bet[] = data.map((b: any) => ({
+          id: b.id,
+          userId: b.user_id,
+          userName: b.user_name || 'Player',
+          period: String(b.period),
+          room: b.room as RoomType,
+          selection: b.selection,
+          amount: Number(b.amount),
+          payout: Number(b.payout || 0),
+          status: b.status,
+          createdAt: Number(b.created_at),
+          multiplier: Number(b.multiplier || 0),
+          resultNumber: b.result_number !== null && b.result_number !== undefined ? Number(b.result_number) : undefined,
+        }));
+
+        // Merge memory state and DB bets, deduplicating by ID
+        const map = new Map<string, Bet>();
+        dbBets.forEach(b => map.set(b.id, b));
+        userBets.forEach(b => map.set(b.id, b)); // Memory state takes precedence for in-flight pending status
+        userBets = Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
+      }
+    } catch (dbErr) {
+      console.warn('Could not query Supabase for my-bets:', dbErr);
+    }
+  }
+
+  res.json({ bets: userBets.slice(0, 100) });
 });
 
 // Deposit Request
-app.post('/api/wallet/deposit', (req, res) => {
+app.post('/api/wallet/deposit', async (req, res) => {
   const { userId, amount, utr, instantSimulated } = req.body;
   const numAmount = Number(amount);
   const cleanUtr = sanitizeInput(utr);
@@ -898,9 +956,10 @@ app.post('/api/wallet/deposit', (req, res) => {
 
   state.deposits.unshift(deposit);
   saveState();
-  saveDepositToSupabase(deposit);
+
+  await saveDepositToSupabase(deposit);
   if (isAutoApproved) {
-    saveUserToSupabase(user);
+    await saveUserToSupabase(user);
   }
 
   res.json({
@@ -1057,14 +1116,14 @@ async function verifyAndProcessCashfreeOrder(orderId: string) {
                 referrer.balance += comm;
                 referrer.unwageredDeposit = (referrer.unwageredDeposit || 0) + comm;
                 referrer.referralEarnings = (referrer.referralEarnings || 0) + comm;
-                saveUserToSupabase(referrer);
+                await saveUserToSupabase(referrer);
               }
             }
           }
-          saveUserToSupabase(user);
+          await saveUserToSupabase(user);
         }
         saveState();
-        saveDepositToSupabase(deposit);
+        await saveDepositToSupabase(deposit);
       }
       const user = state.users.find(u => u.id === deposit!.userId || u.phone === deposit!.userPhone);
       return { success: true, status: 'PAID', amount: deposit.amount, deposit, updatedBalance: user?.balance };
@@ -1089,11 +1148,11 @@ async function verifyAndProcessCashfreeOrder(orderId: string) {
       if (user) {
         user.balance += amountPaid;
         user.unwageredDeposit = (user.unwageredDeposit || 0) + amountPaid;
-        saveUserToSupabase(user);
+        await saveUserToSupabase(user);
       }
       state.deposits.unshift(newDep);
       saveState();
-      saveDepositToSupabase(newDep);
+      await saveDepositToSupabase(newDep);
 
       return { success: true, status: 'PAID', amount: amountPaid, deposit: newDep, updatedBalance: user?.balance };
     }
@@ -1193,7 +1252,7 @@ setInterval(async () => {
 }, 30000);
 
 // Withdrawal Request
-app.post('/api/wallet/withdraw', (req, res) => {
+app.post('/api/wallet/withdraw', async (req, res) => {
   const { userId, amount, type, upiId, bankDetails } = req.body;
   const numAmount = Number(amount);
   const cleanUpiId = sanitizeInput(upiId);
@@ -1240,8 +1299,23 @@ app.post('/api/wallet/withdraw', (req, res) => {
     return res.status(400).json({ error: 'Insufficient balance to request withdrawal!' });
   }
 
-  if (type === 'UPI' && (!upiId || !upiId.includes('@'))) {
-    return res.status(400).json({ error: 'Please enter a valid UPI ID (e.g. name@upi)' });
+  let finalUpiId = cleanUpiId;
+  if (type === 'UPI') {
+    if (!cleanUpiId || !cleanUpiId.includes('@')) {
+      return res.status(400).json({ error: 'Please enter a valid UPI ID (e.g. name@upi)' });
+    }
+
+    // Handle UPI ID locking logic
+    if (!user.boundUpiId) {
+      // First time setting UPI ID - Lock it automatically
+      user.boundUpiId = cleanUpiId;
+      user.upiLocked = true;
+    } else if (user.upiLocked && user.boundUpiId !== cleanUpiId) {
+      return res.status(400).json({ 
+        error: `Your account is locked to UPI ID: ${user.boundUpiId}. To change your bound UPI ID, click "Unlock & Change UPI ID" (Requires ₹500 fee).` 
+      });
+    }
+    finalUpiId = user.boundUpiId;
   }
 
   if (type === 'BANK') {
@@ -1260,7 +1334,7 @@ app.post('/api/wallet/withdraw', (req, res) => {
     userPhone: user.phone,
     amount: Number(amount),
     type: type as 'UPI' | 'BANK',
-    upiId,
+    upiId: type === 'UPI' ? finalUpiId : undefined,
     bankDetails,
     status: 'PENDING',
     createdAt: Date.now(),
@@ -1268,8 +1342,8 @@ app.post('/api/wallet/withdraw', (req, res) => {
 
   state.withdrawals.unshift(withdrawal);
   saveState();
-  saveWithdrawalToSupabase(withdrawal);
-  saveUserToSupabase(user);
+  await saveWithdrawalToSupabase(withdrawal);
+  await saveUserToSupabase(user);
 
   res.json({
     success: true,
@@ -1277,6 +1351,49 @@ app.post('/api/wallet/withdraw', (req, res) => {
     message: `Withdrawal request of ₹${amount} submitted successfully! Your request is queued for manual processing and will be transferred to your account within 2 hours.`,
     updatedBalance: user.balance,
   });
+});
+
+// Change Locked UPI ID Endpoint (Requires ₹500 Fee)
+app.post('/api/wallet/change-upi', async (req, res) => {
+  try {
+    const { userId, newUpiId } = req.body;
+    const cleanUpi = sanitizeInput(newUpiId);
+
+    if (!userId || !cleanUpi || !cleanUpi.includes('@')) {
+      return res.status(400).json({ error: 'Please enter a valid UPI ID (e.g. name@upi)' });
+    }
+
+    const user = state.users.find(u => u.id === userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const CHANGE_FEE = 500;
+    if (user.balance < CHANGE_FEE) {
+      return res.status(400).json({
+        error: `Insufficient wallet balance! Changing your locked UPI ID requires a ₹500 fee. Your current wallet balance is ₹${user.balance.toFixed(2)}.`
+      });
+    }
+
+    // Deduct ₹500 fee & update bound UPI ID
+    user.balance -= CHANGE_FEE;
+    user.boundUpiId = cleanUpi;
+    user.upiLocked = true;
+
+    saveState();
+    await saveUserToSupabase(user);
+
+    res.json({
+      success: true,
+      message: `₹500 fee deducted successfully. Your UPI ID has been updated to ${cleanUpi} and locked to your account.`,
+      user,
+      updatedBalance: user.balance,
+      boundUpiId: user.boundUpiId,
+      upiLocked: user.upiLocked,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to update locked UPI ID' });
+  }
 });
 
 // Get User Wallet Transactions
@@ -1407,7 +1524,7 @@ app.get('/api/admin/deposits', (req, res) => {
 });
 
 // Approve Deposit
-app.post('/api/admin/deposits/:id/approve', (req, res) => {
+app.post('/api/admin/deposits/:id/approve', async (req, res) => {
   const dep = state.deposits.find(d => d.id === req.params.id);
   if (!dep) return res.status(404).json({ error: 'Deposit request not found' });
 
@@ -1431,15 +1548,15 @@ app.post('/api/admin/deposits/:id/approve', (req, res) => {
         referrer.balance += bonus;
         referrer.unwageredDeposit = (referrer.unwageredDeposit || 0) + bonus;
         referrer.referralEarnings = (referrer.referralEarnings || 0) + bonus;
-        saveUserToSupabase(referrer);
+        await saveUserToSupabase(referrer);
         console.log(`[Referral] 5% Commission ₹${bonus} credited to ${referrer.phone} for user ${user.phone}'s deposit of ₹${dep.amount}`);
       }
     }
   }
 
   saveState();
-  saveDepositToSupabase(dep);
-  if (user) saveUserToSupabase(user);
+  await saveDepositToSupabase(dep);
+  if (user) await saveUserToSupabase(user);
 
   res.json({ success: true, deposit: dep, updatedUserBalance: user?.balance });
 });
@@ -1549,7 +1666,7 @@ app.post('/api/admin/withdrawals/:id/approve', (req, res) => {
 });
 
 // Reject Withdrawal (Refund balance)
-app.post('/api/admin/withdrawals/:id/reject', (req, res) => {
+app.post('/api/admin/withdrawals/:id/reject', async (req, res) => {
   const { reason } = req.body;
   const wth = state.withdrawals.find(w => w.id === req.params.id);
   if (!wth) return res.status(404).json({ error: 'Withdrawal request not found' });
@@ -1569,8 +1686,8 @@ app.post('/api/admin/withdrawals/:id/reject', (req, res) => {
   }
 
   saveState();
-  saveWithdrawalToSupabase(wth);
-  if (user) saveUserToSupabase(user);
+  await saveWithdrawalToSupabase(wth);
+  if (user) await saveUserToSupabase(user);
 
   res.json({ success: true, withdrawal: wth, updatedUserBalance: user?.balance });
 });
@@ -1580,7 +1697,7 @@ app.get('/api/admin/users', (req, res) => {
   res.json({ users: state.users });
 });
 
-app.post('/api/admin/users/:id/balance', (req, res) => {
+app.post('/api/admin/users/:id/balance', async (req, res) => {
   const { newBalance, delta } = req.body;
   const user = state.users.find(u => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -1592,7 +1709,7 @@ app.post('/api/admin/users/:id/balance', (req, res) => {
   }
 
   saveState();
-  saveUserToSupabase(user);
+  await saveUserToSupabase(user);
   res.json({ success: true, user });
 });
 
