@@ -383,16 +383,13 @@ export async function checkAndProcessRounds() {
     const currentNum = parseInt(currentPeriod, 10);
     if (isNaN(currentNum)) continue;
 
-    // Find the most recent completed period in state.rounds for this room
+    // Find the most recent completed period in state.rounds for this room (strictly strictly < currentNum)
     const roomRounds = state.rounds.filter(rd => rd.room === r || (!rd.room && r === 'WINGO_30S'));
-    let lastProcessedNum = 0;
-    if (roomRounds.length > 0) {
-      lastProcessedNum = Math.max(...roomRounds.map(rd => parseInt(rd.period, 10)).filter(n => !isNaN(n)));
-    }
+    const completedNums = roomRounds
+      .map(rd => parseInt(rd.period, 10))
+      .filter(n => !isNaN(n) && n < currentNum);
 
-    if (lastProcessedNum === 0 || lastProcessedNum >= currentNum) {
-      lastProcessedNum = currentNum - 1;
-    }
+    let lastProcessedNum = completedNums.length > 0 ? Math.max(...completedNums) : currentNum - 1;
 
     // Catch up all missing periods sequentially (up to 50 max catchup rounds per turn)
     const catchupLimit = Math.min(currentNum - 1, lastProcessedNum + 50);
@@ -2127,7 +2124,7 @@ app.get('/api/admin/override-info', (req, res) => {
   });
 });
 
-app.post('/api/admin/override-number', (req, res) => {
+app.post('/api/admin/override-number', async (req, res) => {
   const { number, room, period } = req.body;
   const targetRoom = (room as RoomType) || 'WINGO_30S';
 
@@ -2157,6 +2154,78 @@ app.post('/api/admin/override-number', (req, res) => {
     return res.status(400).json({ error: 'Winning number must be between 0 and 9' });
   }
 
+  // If this period already exists in history, update it immediately in database & re-evaluate bets
+  const existingRound = state.rounds.find(r => r.period === targetPeriod && (r.room === targetRoom || (!r.room && targetRoom === 'WINGO_30S')));
+  if (existingRound) {
+    let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
+    if (num === 0) colors = ['RED', 'VIOLET'];
+    else if (num === 5) colors = ['GREEN', 'VIOLET'];
+    else if ([1, 3, 7, 9].includes(num)) colors = ['GREEN'];
+    else colors = ['RED'];
+    const bigSmall = num >= 5 ? 'BIG' : 'SMALL';
+
+    existingRound.number = num;
+    existingRound.colors = colors;
+    existingRound.bigSmall = bigSmall;
+    existingRound.seedHash = crypto.createHash('sha256').update(`${targetPeriod}-${targetRoom}-FAIRPLAY-${num}`).digest('hex');
+
+    // Re-evaluate any bets placed on this round
+    const roundBets = state.bets.filter(b => b.period === targetPeriod && (b.room === targetRoom || !b.room));
+    for (const bet of roundBets) {
+      let won = false;
+      let payoutMultiplier = 0;
+      const sel = bet.selection;
+      if (sel === 'GREEN' && colors.includes('GREEN')) {
+        won = true;
+        payoutMultiplier = num === 5 ? 1.5 : 2;
+      } else if (sel === 'RED' && colors.includes('RED')) {
+        won = true;
+        payoutMultiplier = num === 0 ? 1.5 : 2;
+      } else if (sel === 'VIOLET' && colors.includes('VIOLET')) {
+        won = true;
+        payoutMultiplier = 4.5;
+      } else if (sel === 'BIG' && bigSmall === 'BIG') {
+        won = true;
+        payoutMultiplier = 2;
+      } else if (sel === 'SMALL' && bigSmall === 'SMALL') {
+        won = true;
+        payoutMultiplier = 2;
+      } else if (sel === String(num)) {
+        won = true;
+        payoutMultiplier = 9;
+      }
+
+      bet.status = won ? 'WON' : 'LOST';
+      bet.resultNumber = num;
+      bet.multiplier = payoutMultiplier;
+      const u = state.users.find(usr => usr.id === bet.userId || usr.phone === bet.userId);
+      if (won) {
+        const winAmount = Math.floor(bet.amount * payoutMultiplier);
+        bet.payout = winAmount;
+        if (u) {
+          u.balance += winAmount;
+          bet.payoutBalanceAfter = u.balance;
+          await saveUserToSupabase(u);
+        }
+      } else {
+        bet.payout = 0;
+        if (u) bet.payoutBalanceAfter = u.balance;
+      }
+      await saveBetToSupabase(bet);
+    }
+
+    saveState();
+    await saveGameRoundToSupabase(existingRound);
+
+    return res.json({
+      success: true,
+      targetPeriod,
+      manualOverrideNumber: num,
+      message: `Period #${targetPeriod} result in database updated immediately to Number ${num}!`,
+    });
+  }
+
+  // Schedule for current active period or upcoming period
   const key = `${targetRoom}:${targetPeriod}`;
   (state as any).scheduledOverrides[key] = {
     period: targetPeriod,
