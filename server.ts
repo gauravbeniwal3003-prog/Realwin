@@ -632,9 +632,9 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Valid mobile number required' });
     }
 
-    let user = state.users.find(u => u.phone === cleanPhone);
+    let user: User | null = null;
 
-    if (!user && isSupabaseConfigured) {
+    if (isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
         if (data && !error) {
@@ -642,17 +642,30 @@ app.post('/api/auth/login', async (req, res) => {
             id: data.id,
             phone: data.phone,
             name: data.name,
-            balance: Number(data.balance),
+            balance: Number(data.balance || 0),
+            unwageredDeposit: data.unwagered_deposit !== undefined && data.unwagered_deposit !== null ? Number(data.unwagered_deposit) : 0,
             isAdmin: Boolean(data.is_admin),
             createdAt: Number(data.created_at || Date.now()),
             referredBy: data.referred_by || undefined,
             referralEarnings: Number(data.referral_earnings || 0),
+            boundUpiId: data.bound_upi_id || undefined,
+            upiLocked: Boolean(data.upi_locked),
           };
-          state.users.push(user);
+          // Sync in-memory state with Supabase user
+          const existingIdx = state.users.findIndex(u => u.id === user!.id || u.phone === user!.phone);
+          if (existingIdx >= 0) {
+            state.users[existingIdx] = user;
+          } else {
+            state.users.push(user);
+          }
         }
       } catch (err) {
         console.warn('Supabase lookup warning on login:', err);
       }
+    }
+
+    if (!user) {
+      user = state.users.find(u => u.phone === cleanPhone) || null;
     }
 
     if (!user) {
@@ -662,13 +675,14 @@ app.post('/api/auth/login', async (req, res) => {
         phone: cleanPhone,
         name: `Player_${cleanPhone.slice(-4)}`,
         balance: 0,
+        unwageredDeposit: 0,
         isAdmin: cleanPhone === '9999999999',
         createdAt: Date.now(),
         referralEarnings: 0,
       };
       state.users.push(user);
       saveState();
-      saveUserToSupabase(user);
+      await saveUserToSupabase(user);
     }
 
     res.json({ user });
@@ -687,8 +701,8 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Valid 10-digit mobile number is required' });
     }
 
-    let existing = state.users.find(u => u.phone === cleanPhone);
-    if (!existing && isSupabaseConfigured) {
+    let existing: User | null = null;
+    if (isSupabaseConfigured) {
       try {
         const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
         if (data && !error) {
@@ -696,17 +710,29 @@ app.post('/api/auth/register', async (req, res) => {
             id: data.id,
             phone: data.phone,
             name: data.name,
-            balance: Number(data.balance),
+            balance: Number(data.balance || 0),
+            unwageredDeposit: data.unwagered_deposit !== undefined && data.unwagered_deposit !== null ? Number(data.unwagered_deposit) : 0,
             isAdmin: Boolean(data.is_admin),
             createdAt: Number(data.created_at || Date.now()),
             referredBy: data.referred_by || undefined,
             referralEarnings: Number(data.referral_earnings || 0),
+            boundUpiId: data.bound_upi_id || undefined,
+            upiLocked: Boolean(data.upi_locked),
           };
-          state.users.push(existing);
+          const existingIdx = state.users.findIndex(u => u.id === existing!.id || u.phone === existing!.phone);
+          if (existingIdx >= 0) {
+            state.users[existingIdx] = existing;
+          } else {
+            state.users.push(existing);
+          }
         }
       } catch (err) {
         console.warn('Supabase lookup on register warning:', err);
       }
+    }
+
+    if (!existing) {
+      existing = state.users.find(u => u.phone === cleanPhone) || null;
     }
 
     if (existing) {
@@ -731,6 +757,7 @@ app.post('/api/auth/register', async (req, res) => {
       phone: cleanPhone,
       name: cleanName || `Player_${cleanPhone.slice(-4)}`,
       balance: 0,
+      unwageredDeposit: 0,
       isAdmin: cleanPhone === '9999999999',
       createdAt: Date.now(),
       referredBy: referrerId,
@@ -739,7 +766,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     state.users.push(newUser);
     saveState();
-    saveUserToSupabase(newUser);
+    await saveUserToSupabase(newUser);
     res.json({ user: newUser });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Registration failed' });
@@ -748,26 +775,40 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.get('/api/auth/user/:id', async (req, res) => {
   try {
-    let user = state.users.find(u => u.id === req.params.id);
-    if (!user && isSupabaseConfigured) {
+    const userId = req.params.id;
+    let user: User | null = null;
+
+    if (isSupabaseConfigured) {
       try {
-        const { data, error } = await supabase.from('users').select('*').eq('id', req.params.id).maybeSingle();
+        const { data, error } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
         if (data && !error) {
           user = {
             id: data.id,
             phone: data.phone,
             name: data.name,
-            balance: Number(data.balance),
+            balance: Number(data.balance || 0),
+            unwageredDeposit: data.unwagered_deposit !== undefined && data.unwagered_deposit !== null ? Number(data.unwagered_deposit) : 0,
             isAdmin: Boolean(data.is_admin),
             createdAt: Number(data.created_at || Date.now()),
             referredBy: data.referred_by || undefined,
             referralEarnings: Number(data.referral_earnings || 0),
+            boundUpiId: data.bound_upi_id || undefined,
+            upiLocked: Boolean(data.upi_locked),
           };
-          state.users.push(user);
+          const existingIdx = state.users.findIndex(u => u.id === userId);
+          if (existingIdx >= 0) {
+            state.users[existingIdx] = user;
+          } else {
+            state.users.push(user);
+          }
         }
       } catch (err) {
         console.warn('Supabase lookup on fetch user warning:', err);
       }
+    }
+
+    if (!user) {
+      user = state.users.find(u => u.id === userId || u.phone === userId) || null;
     }
 
     if (!user) {
@@ -1419,6 +1460,7 @@ interface RateLimitRecord {
   count: number;
   lockUntil: number;
   firstAttemptAt: number;
+  lastFailedAt?: number;
 }
 const adminLoginAttempts = new Map<string, RateLimitRecord>();
 
@@ -1426,8 +1468,8 @@ const ADMIN_ACCESS_KEY = 'gaurav@2026#2008';
 
 // --- ADMIN ROUTES ---
 
-// Admin Login
-app.post('/api/admin/login', (req, res) => {
+// Admin Login (Protected with Mandatory 3-Second Anti Brute Force Delay)
+app.post('/api/admin/login', async (req, res) => {
   const { pin } = req.body;
   const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown_ip';
   const clientIp = rawIp.split(',')[0].trim();
@@ -1436,11 +1478,20 @@ app.post('/api/admin/login', (req, res) => {
   const MAX_ATTEMPTS = 5;
   const WINDOW_MS = 15 * 60 * 1000; // 15 minutes window
   const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes lockout
+  const COOLDOWN_MS = 3000; // 3 seconds anti brute force delay
 
   let record = adminLoginAttempts.get(clientIp);
 
   if (record) {
-    // Check if client is currently locked out
+    // Check if client is currently in 3-second anti brute force cooldown
+    if (record.lastFailedAt && (now - record.lastFailedAt) < COOLDOWN_MS) {
+      const waitSecs = Math.ceil((COOLDOWN_MS - (now - record.lastFailedAt)) / 1000);
+      return res.status(429).json({
+        error: `Anti-Brute Force Protection Active: You must wait ${waitSecs} second(s) after a failed attempt before trying again.`
+      });
+    }
+
+    // Check if client is currently locked out (15 mins)
     if (record.lockUntil > now) {
       const remainingSecs = Math.ceil((record.lockUntil - now) / 1000);
       const remainingMins = Math.ceil(remainingSecs / 60);
@@ -1465,12 +1516,16 @@ app.post('/api/admin/login', (req, res) => {
     return res.json({ success: true, token: 'admin_session_valid' });
   }
 
-  // On failed PIN attempt
+  // On failed PIN attempt -> set timestamp
   record.count += 1;
+  record.lastFailedAt = Date.now();
 
   if (record.count >= MAX_ATTEMPTS) {
-    record.lockUntil = now + LOCKOUT_MS;
+    record.lockUntil = Date.now() + LOCKOUT_MS;
     adminLoginAttempts.set(clientIp, record);
+    
+    // Mandatory 3-second anti-brute force delay before returning error
+    await new Promise(r => setTimeout(r, 3000));
     return res.status(429).json({
       error: 'Security Lockout Activated! Maximum 5 failed access key attempts reached. Access is locked for 15 minutes.'
     });
@@ -1478,13 +1533,32 @@ app.post('/api/admin/login', (req, res) => {
 
   adminLoginAttempts.set(clientIp, record);
   const remaining = MAX_ATTEMPTS - record.count;
+
+  // Mandatory 3-second anti-brute force delay before returning error
+  await new Promise(r => setTimeout(r, 3000));
+
   return res.status(401).json({
-    error: `Invalid Admin Access Key! ${remaining} attempt(s) remaining before security lockout.`
+    error: `Invalid Admin Access Key! ${remaining} attempt(s) remaining before security lockout. Please wait 3 seconds before retrying.`
   });
 });
 
 // Admin Stats
-app.get('/api/admin/stats', (req, res) => {
+app.get('/api/admin/stats', async (req, res) => {
+  if (isSupabaseConfigured) {
+    try {
+      const [dbUsers, dbDeps, dbWths] = await Promise.all([
+        loadUsersFromSupabase(),
+        loadDepositsFromSupabase(),
+        loadWithdrawalsFromSupabase(),
+      ]);
+      if (dbUsers && dbUsers.length > 0) state.users = dbUsers;
+      if (dbDeps && dbDeps.length > 0) state.deposits = dbDeps;
+      if (dbWths && dbWths.length > 0) state.withdrawals = dbWths;
+    } catch (e) {
+      console.warn('Admin stats Supabase refresh warning:', e);
+    }
+  }
+
   const totalUsers = state.users.length;
   const totalWalletBalance = state.users.reduce((acc, u) => acc + u.balance, 0);
 
@@ -1519,7 +1593,13 @@ app.get('/api/admin/stats', (req, res) => {
 });
 
 // List Deposits for Admin
-app.get('/api/admin/deposits', (req, res) => {
+app.get('/api/admin/deposits', async (req, res) => {
+  if (isSupabaseConfigured) {
+    try {
+      const dbDeps = await loadDepositsFromSupabase();
+      if (dbDeps && dbDeps.length > 0) state.deposits = dbDeps;
+    } catch (_) {}
+  }
   res.json({ deposits: state.deposits });
 });
 
@@ -1608,7 +1688,13 @@ app.delete('/api/admin/deposits/:id', (req, res) => {
 });
 
 // List Withdrawals for Admin
-app.get('/api/admin/withdrawals', (req, res) => {
+app.get('/api/admin/withdrawals', async (req, res) => {
+  if (isSupabaseConfigured) {
+    try {
+      const dbWths = await loadWithdrawalsFromSupabase();
+      if (dbWths && dbWths.length > 0) state.withdrawals = dbWths;
+    } catch (_) {}
+  }
   res.json({ withdrawals: state.withdrawals });
 });
 
@@ -1693,7 +1779,13 @@ app.post('/api/admin/withdrawals/:id/reject', async (req, res) => {
 });
 
 // User Management
-app.get('/api/admin/users', (req, res) => {
+app.get('/api/admin/users', async (req, res) => {
+  if (isSupabaseConfigured) {
+    try {
+      const dbUsers = await loadUsersFromSupabase();
+      if (dbUsers && dbUsers.length > 0) state.users = dbUsers;
+    } catch (_) {}
+  }
   res.json({ users: state.users });
 });
 

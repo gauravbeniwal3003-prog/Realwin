@@ -185,9 +185,25 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
 
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'SUCCESS' | 'ERROR'; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [cooldownSecs, setCooldownSecs] = useState<number>(0);
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (cooldownSecs > 0) {
+      timer = setInterval(() => {
+        setCooldownSecs(prev => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [cooldownSecs]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (cooldownSecs > 0 || loginLoading) return;
+
+    setLoginLoading(true);
+    setAuthError(null);
     try {
       const ok = await adminLogin(pinInput);
       if (ok) {
@@ -195,7 +211,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
         loadAdminData();
       }
     } catch (err: any) {
-      setAuthError(err.message || 'Invalid PIN');
+      const msg = err.message || 'Invalid PIN';
+      setAuthError(msg);
+      setCooldownSecs(3);
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -480,21 +500,32 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
             </div>
 
             {authError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-700 text-xs font-bold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-                <span>{authError}</span>
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-700 text-xs font-bold space-y-1">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0" />
+                  <span>{authError}</span>
+                </div>
+                {cooldownSecs > 0 && (
+                  <p className="text-[11px] text-rose-600 font-semibold pl-6">
+                    🛡️ Anti Brute Force Protection: Access paused for {cooldownSecs} second{cooldownSecs > 1 ? 's' : ''}...
+                  </p>
+                )}
               </div>
             )}
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-gray-600 block mb-1">Admin Access Key</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-xs font-bold text-gray-600">Admin Access Key</label>
+                  <span className="text-[10px] text-gray-400 font-semibold">Protected with 3s Anti-Brute Force Delay</span>
+                </div>
                 <input
                   type="password"
                   value={pinInput}
                   onChange={e => setPinInput(e.target.value)}
                   placeholder="Enter Access Key"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-center text-lg font-mono tracking-widest text-gray-900 focus:outline-none focus:border-[#ff5353]"
+                  disabled={cooldownSecs > 0 || loginLoading}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-center text-lg font-mono tracking-widest text-gray-900 focus:outline-none focus:border-[#ff5353] disabled:opacity-50"
                 />
               </div>
 
@@ -508,9 +539,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-gradient-to-r from-[#ff5652] to-[#ff3b38] hover:from-[#e04541] hover:to-[#e02d2a] text-white font-extrabold rounded-2xl text-xs shadow-md transition active:scale-95"
+                  disabled={cooldownSecs > 0 || loginLoading}
+                  className="flex-1 py-3 bg-gradient-to-r from-[#ff5652] to-[#ff3b38] hover:from-[#e04541] hover:to-[#e02d2a] text-white font-extrabold rounded-2xl text-xs shadow-md transition active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-1.5"
                 >
-                  Authenticate
+                  {loginLoading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Authenticating (3s Delay)...</span>
+                    </>
+                  ) : cooldownSecs > 0 ? (
+                    <span>Wait ({cooldownSecs}s)...</span>
+                  ) : (
+                    <span>Authenticate</span>
+                  )}
                 </button>
               </div>
             </form>

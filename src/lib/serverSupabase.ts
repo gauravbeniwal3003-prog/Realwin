@@ -55,7 +55,8 @@ export async function loadUsersFromSupabase(): Promise<User[]> {
       id: u.id,
       phone: u.phone,
       name: u.name,
-      balance: Number(u.balance),
+      balance: Number(u.balance || 0),
+      unwageredDeposit: u.unwagered_deposit !== undefined && u.unwagered_deposit !== null ? Number(u.unwagered_deposit) : 0,
       isAdmin: Boolean(u.is_admin),
       createdAt: Number(u.created_at || Date.now()),
       referredBy: u.referred_by || undefined,
@@ -72,7 +73,7 @@ export async function loadUsersFromSupabase(): Promise<User[]> {
 export async function saveUserToSupabase(user: User): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
-    const payload = {
+    const fullPayload = {
       id: user.id,
       phone: user.phone,
       name: user.name,
@@ -83,14 +84,66 @@ export async function saveUserToSupabase(user: User): Promise<void> {
       referral_earnings: user.referralEarnings || 0,
       bound_upi_id: user.boundUpiId || null,
       upi_locked: user.upiLocked || false,
+      unwagered_deposit: user.unwageredDeposit || 0,
     };
 
-    let { error } = await supabase.from('users').upsert(payload, { onConflict: 'id' });
+    let { error } = await supabase.from('users').upsert(fullPayload, { onConflict: 'id' });
     if (error) {
-      let fallbackRes = await supabase.from('users').upsert(payload);
-      if (fallbackRes.error) {
-        console.warn('⚠️ Supabase saveUser notice:', fallbackRes.error.message);
+      console.warn('⚠️ Supabase full user save warning:', error.message, 'Retrying fallback...');
+      
+      // Fallback 1: Exclude unwagered_deposit if column missing
+      const fallbackPayload1 = {
+        id: user.id,
+        phone: user.phone,
+        name: user.name,
+        balance: user.balance,
+        is_admin: user.isAdmin,
+        created_at: user.createdAt,
+        referred_by: user.referredBy || null,
+        referral_earnings: user.referralEarnings || 0,
+        bound_upi_id: user.boundUpiId || null,
+        upi_locked: user.upiLocked || false,
+      };
+      let res1 = await supabase.from('users').upsert(fallbackPayload1, { onConflict: 'id' });
+      
+      if (res1.error) {
+        // Fallback 2: Exclude bound_upi_id & upi_locked if missing
+        const fallbackPayload2 = {
+          id: user.id,
+          phone: user.phone,
+          name: user.name,
+          balance: user.balance,
+          is_admin: user.isAdmin,
+          created_at: user.createdAt,
+          referred_by: user.referredBy || null,
+          referral_earnings: user.referralEarnings || 0,
+        };
+        let res2 = await supabase.from('users').upsert(fallbackPayload2, { onConflict: 'id' });
+        
+        if (res2.error) {
+          // Fallback 3: Strictly core columns (guarantees balance is saved no matter what schema)
+          const corePayload = {
+            id: user.id,
+            phone: user.phone,
+            name: user.name,
+            balance: user.balance,
+            is_admin: user.isAdmin,
+            created_at: user.createdAt,
+          };
+          let res3 = await supabase.from('users').upsert(corePayload, { onConflict: 'id' });
+          if (res3.error) {
+            console.error('❌ Failed to save user core balance to Supabase:', res3.error.message);
+          } else {
+            console.log(`✅ Saved core user balance (₹${user.balance}) to Supabase for user ${user.id}`);
+          }
+        } else {
+          console.log(`✅ Saved fallback2 user data (₹${user.balance}) to Supabase for user ${user.id}`);
+        }
+      } else {
+        console.log(`✅ Saved fallback1 user data (₹${user.balance}) to Supabase for user ${user.id}`);
       }
+    } else {
+      console.log(`✅ Saved full user data (₹${user.balance}) to Supabase for user ${user.id}`);
     }
   } catch (err) {
     console.error('Error saving user to Supabase:', err);
