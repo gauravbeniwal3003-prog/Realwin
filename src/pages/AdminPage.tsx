@@ -30,6 +30,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Megaphone,
+  Calendar,
 } from 'lucide-react';
 import { AdminStats, DepositRequest, WithdrawalRequest, User, SystemSettings } from '../types';
 import {
@@ -91,14 +92,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
   const [overrideInfo, setOverrideInfo] = useState<any>(null);
   const [schedulePeriodInput, setSchedulePeriodInput] = useState<string>('');
   const [scheduleNumberInput, setScheduleNumberInput] = useState<number>(5);
+  const [overrideSubTab, setOverrideSubTab] = useState<'QUICK' | 'SCHEDULE'>('QUICK');
+  const [showActiveOverrideDetails, setShowActiveOverrideDetails] = useState<boolean>(true);
+  const [showScheduledList, setShowScheduledList] = useState<boolean>(true);
 
   const loadOverrideData = async (room = selectedOverrideRoom) => {
     try {
       const data = await fetchOverrideInfo(room);
       setOverrideInfo(data);
-      if (!schedulePeriodInput) {
-        setSchedulePeriodInput(data.activePeriod);
-      }
+      // Only set initial period if the input is totally blank and never touched
+      setSchedulePeriodInput(prev => (prev === '' ? data.activePeriod : prev));
     } catch (err) {
       console.error('Failed to load override info', err);
     }
@@ -1147,291 +1150,370 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
                 </div>
               </div>
 
-              {/* Section A: Immediate Next Round Override */}
-              <div className="bg-gray-50/80 p-5 rounded-3xl border border-gray-200 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 pb-3">
-                  <div>
-                    <h4 className="font-heading text-sm font-black text-gray-900 flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
-                      <span>Option 1: Quick Next Round Result Override</span>
-                    </h4>
-                    <p className="text-xs text-gray-500 font-medium">
-                      Select winning number for Period <span className="font-mono font-bold text-gray-800">#{overrideInfo?.activePeriod || '...'}</span> ({selectedOverrideRoom === 'WINGO_30S' ? '30s Window' : '1 Min Window'}).
-                    </p>
+              {/* Sub-Tabs Selector for Mode */}
+              <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setOverrideSubTab('QUICK')}
+                  className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 ${
+                    overrideSubTab === 'QUICK'
+                      ? 'bg-white text-gray-900 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                  <span>Option 1: Quick Next Round Override</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOverrideSubTab('SCHEDULE')}
+                  className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 ${
+                    overrideSubTab === 'SCHEDULE'
+                      ? 'bg-white text-gray-900 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4 text-[#ff5353]" />
+                  <span>Option 2: Schedule Specific Future Period</span>
+                </button>
+              </div>
+
+              {/* SECTION 1: QUICK OVERRIDE */}
+              {overrideSubTab === 'QUICK' && (
+                <div className="bg-gray-50/80 p-5 rounded-3xl border border-gray-200 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 pb-3">
+                    <div>
+                      <h4 className="font-heading text-sm font-black text-gray-900 flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                        <span>Quick Next Round Result Override</span>
+                      </h4>
+                      <p className="text-xs text-gray-500 font-medium">
+                        Click any number (0-9) to force that number as the winner for Period <span className="font-mono font-bold text-gray-800">#{overrideInfo?.activePeriod || '...'}</span>.
+                      </p>
+                    </div>
+
+                    {(overrideInfo?.activeOverrideNumber !== null && overrideInfo?.activeOverrideNumber !== undefined) && (
+                      <div className="bg-amber-100 border border-amber-300 text-amber-900 px-3 py-1 rounded-full text-xs font-black flex items-center gap-2 animate-pulse">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                        <span>Target Period #{overrideInfo?.activePeriod}: Number {overrideInfo.activeOverrideNumber}</span>
+                        <button
+                          onClick={() => handleSetNextOverride(null)}
+                          className="ml-1 text-xs text-rose-600 hover:underline font-bold"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  {(overrideInfo?.activeOverrideNumber !== null && overrideInfo?.activeOverrideNumber !== undefined) && (
-                    <div className="bg-amber-100 border border-amber-300 text-amber-900 px-3 py-1 rounded-full text-xs font-black flex items-center gap-2 animate-pulse">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-                      <span>Target Period #{overrideInfo?.activePeriod}: Number {overrideInfo.activeOverrideNumber}</span>
-                      <button
-                        onClick={() => handleSetNextOverride(null)}
-                        className="ml-1 text-xs text-rose-600 hover:underline font-bold"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                  {[
-                    { num: 0, label: 'Red + Violet', color: 'bg-gradient-to-r from-red-500 to-purple-600 text-white', tag: 'SMALL' },
-                    { num: 1, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'SMALL' },
-                    { num: 2, label: 'Red', color: 'bg-red-500 text-white', tag: 'SMALL' },
-                    { num: 3, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'SMALL' },
-                    { num: 4, label: 'Red', color: 'bg-red-500 text-white', tag: 'SMALL' },
-                    { num: 5, label: 'Green + Violet', color: 'bg-gradient-to-r from-emerald-500 to-purple-600 text-white', tag: 'BIG' },
-                    { num: 6, label: 'Red', color: 'bg-red-500 text-white', tag: 'BIG' },
-                    { num: 7, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'BIG' },
-                    { num: 8, label: 'Red', color: 'bg-red-500 text-white', tag: 'BIG' },
-                    { num: 9, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'BIG' },
-                  ].map(item => {
-                    const isForced = overrideInfo?.activeOverrideNumber === item.num;
-                    return (
-                      <button
-                        key={item.num}
-                        type="button"
-                        onClick={() => handleSetNextOverride(item.num)}
-                        className={`p-3 rounded-2xl border flex flex-col items-center justify-between gap-1 transition shadow-xs relative overflow-hidden active:scale-95 ${
-                          isForced
-                            ? 'ring-4 ring-amber-400 border-amber-500 bg-amber-500/10 scale-105 animate-pulse shadow-md'
-                            : 'hover:border-gray-400 bg-white'
-                        }`}
-                      >
-                        {isForced && (
-                          <span className="absolute -top-0.5 bg-amber-500 text-white font-black text-[8px] px-2 py-0.5 rounded-b-md shadow-xs animate-bounce tracking-widest">
-                            FORCED
-                          </span>
-                        )}
-                        <div className={`w-9 h-9 rounded-full ${item.color} flex items-center justify-center font-black text-lg shadow-sm ${isForced ? 'ring-2 ring-white animate-spin-slow' : ''}`}>
-                          {item.num}
-                        </div>
-                        <span className="text-[10px] font-black text-gray-700 uppercase">{item.label}</span>
-                        <span className={`text-[9px] font-bold px-2 py-0.2 rounded-full ${isForced ? 'bg-amber-200 text-amber-900 font-black' : 'text-gray-500 bg-gray-200'}`}>
-                          {item.tag}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Mobile-Friendly Color & Size Quick Override Templates */}
-                <div className="space-y-1.5 pt-1">
-                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider block">⚡ One-Click Attribute Force Templates</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {/* 10 Number Buttons */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                     {[
-                      { label: '🟢 FORCE GREEN', num: 7, color: 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black' },
-                      { label: '🔴 FORCE RED', num: 8, color: 'bg-rose-600 hover:bg-rose-700 text-white text-xs font-black' },
-                      { label: '🟣 FORCE VIOLET', num: 0, color: 'bg-purple-600 hover:bg-purple-700 text-white text-xs font-black' },
-                      { label: '📊 FORCE BIG', num: 7, color: 'bg-amber-500 hover:bg-amber-600 text-white text-xs font-black' },
-                      { label: '📉 FORCE SMALL', num: 3, color: 'bg-blue-500 hover:bg-blue-600 text-white text-xs font-black' },
-                    ].map((btn, index) => {
-                      const isMatched = overrideInfo?.activeOverrideNumber === btn.num;
+                      { num: 0, label: 'Red + Violet', color: 'bg-gradient-to-r from-red-500 to-purple-600 text-white', tag: 'SMALL' },
+                      { num: 1, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'SMALL' },
+                      { num: 2, label: 'Red', color: 'bg-red-500 text-white', tag: 'SMALL' },
+                      { num: 3, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'SMALL' },
+                      { num: 4, label: 'Red', color: 'bg-red-500 text-white', tag: 'SMALL' },
+                      { num: 5, label: 'Green + Violet', color: 'bg-gradient-to-r from-emerald-500 to-purple-600 text-white', tag: 'BIG' },
+                      { num: 6, label: 'Red', color: 'bg-red-500 text-white', tag: 'BIG' },
+                      { num: 7, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'BIG' },
+                      { num: 8, label: 'Red', color: 'bg-red-500 text-white', tag: 'BIG' },
+                      { num: 9, label: 'Green', color: 'bg-emerald-500 text-white', tag: 'BIG' },
+                    ].map(item => {
+                      const isForced = overrideInfo?.activeOverrideNumber === item.num;
                       return (
                         <button
-                          key={index}
+                          key={item.num}
                           type="button"
-                          onClick={() => handleSetNextOverride(btn.num)}
-                          className={`py-3 px-3 rounded-2xl text-center transition flex items-center justify-center gap-1 active:scale-95 border ${
-                            isMatched
-                              ? 'ring-4 ring-amber-400 border-amber-500 bg-amber-500/15 text-amber-900 font-black scale-105 shadow-sm'
-                              : `${btn.color} border-transparent`
+                          onClick={() => handleSetNextOverride(item.num)}
+                          className={`p-3 rounded-2xl border flex flex-col items-center justify-between gap-1 transition shadow-xs relative overflow-hidden active:scale-95 ${
+                            isForced
+                              ? 'ring-4 ring-amber-400 border-amber-500 bg-amber-500/10 scale-105 animate-pulse shadow-md'
+                              : 'hover:border-gray-400 bg-white'
                           }`}
                         >
-                          <span>{btn.label}</span>
+                          {isForced && (
+                            <span className="absolute -top-0.5 bg-amber-500 text-white font-black text-[8px] px-2 py-0.5 rounded-b-md shadow-xs animate-bounce tracking-widest">
+                              FORCED
+                            </span>
+                          )}
+                          <div className={`w-9 h-9 rounded-full ${item.color} flex items-center justify-center font-black text-lg shadow-sm ${isForced ? 'ring-2 ring-white animate-spin-slow' : ''}`}>
+                            {item.num}
+                          </div>
+                          <span className="text-[10px] font-black text-gray-700 uppercase">{item.label}</span>
+                          <span className={`text-[9px] font-bold px-2 py-0.2 rounded-full ${isForced ? 'bg-amber-200 text-amber-900 font-black' : 'text-gray-500 bg-gray-200'}`}>
+                            {item.tag}
+                          </span>
                         </button>
                       );
                     })}
                   </div>
-                </div>
 
-                {/* Explicit Statement Banner for Selected Result & Target Period */}
-                {overrideInfo?.activeOverrideNumber !== null && overrideInfo?.activeOverrideNumber !== undefined ? (
-                  <div className="p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-400 space-y-2 shadow-xs">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center gap-2 text-amber-900 font-black text-xs sm:text-sm">
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
-                        </span>
-                        <span>🎯 ACTIVE OVERRIDE: Number {overrideInfo.activeOverrideNumber} set for Period #{overrideInfo.activePeriod}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleSetNextOverride(null)}
-                        className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl transition shadow-xs"
-                      >
-                        🔄 Cancel Override & Reset Auto
-                      </button>
-                    </div>
-                    <p className="text-xs font-bold text-amber-950 leading-relaxed">
-                      Period <span className="font-mono bg-amber-200/80 px-1.5 py-0.5 rounded font-black text-amber-900">#{overrideInfo.activePeriod}</span> ({selectedOverrideRoom === 'WINGO_30S' ? '30s Window' : '1 Min Window'}) par winner result strictly <span className="bg-amber-400 text-black px-2 py-0.5 rounded font-black font-mono">Number {overrideInfo.activeOverrideNumber}</span> severe hone wala hai. Round complete hote hi winner calculation and wallet credits automatic execute ho jayenge.
-                    </p>
-                    <div className="text-[11px] font-semibold text-amber-800 flex items-center justify-between border-t border-amber-200/80 pt-2 flex-wrap gap-2">
-                      <span>⏱️ Time Remaining: <strong className="font-mono font-black text-amber-950">{overrideInfo.secondsRemaining}s</strong></span>
-                      <span>Target Period: <strong className="font-mono font-black text-amber-950">#{overrideInfo.activePeriod}</strong></span>
+                  {/* One-Click Attribute Templates */}
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider block">⚡ One-Click Color & Size Templates</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      {[
+                        { label: '🟢 FORCE GREEN', num: 7, color: 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black' },
+                        { label: '🔴 FORCE RED', num: 8, color: 'bg-rose-600 hover:bg-rose-700 text-white text-xs font-black' },
+                        { label: '🟣 FORCE VIOLET', num: 0, color: 'bg-purple-600 hover:bg-purple-700 text-white text-xs font-black' },
+                        { label: '📊 FORCE BIG', num: 7, color: 'bg-amber-500 hover:bg-amber-600 text-white text-xs font-black' },
+                        { label: '📉 FORCE SMALL', num: 3, color: 'bg-blue-500 hover:bg-blue-600 text-white text-xs font-black' },
+                      ].map((btn, index) => {
+                        const isMatched = overrideInfo?.activeOverrideNumber === btn.num;
+                        return (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => handleSetNextOverride(btn.num)}
+                            className={`py-3 px-3 rounded-2xl text-center transition flex items-center justify-center gap-1 active:scale-95 border ${
+                              isMatched
+                                ? 'ring-4 ring-amber-400 border-amber-500 bg-amber-500/15 text-amber-900 font-black scale-105 shadow-sm'
+                                : `${btn.color} border-transparent`
+                            }`}
+                          >
+                            <span>{btn.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                ) : (
-                  <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 space-y-1.5 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-slate-800 font-extrabold text-xs sm:text-sm">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span>⚡ AUTOMATIC SYSTEM ALGORITHM ACTIVE</span>
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-2.5 py-0.5 rounded-full">
-                        Target Period #{overrideInfo?.activePeriod || '...'}
-                      </span>
-                    </div>
-                    <p className="text-xs font-medium text-slate-600 leading-relaxed">
-                      Period <span className="font-mono font-bold text-slate-900">#{overrideInfo?.activePeriod || '...'}</span> ka result auto house-profit optimization algorithm dwara compute hoga. Agar aap direct koi specific number winner banana chahte hain, toh uper kisi bhi number (0-9) button par click karein.
-                    </p>
-                  </div>
-                )}
 
-                <div className="flex justify-end pt-1">
-                  <button
-                    type="button"
-                    onClick={() => handleSetNextOverride(null)}
-                    className="px-5 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs rounded-2xl transition"
-                  >
-                    🔄 Reset Auto Mode for Next Round
-                  </button>
-                </div>
-              </div>
-
-              {/* Section B: Schedule Specific Period Result Override */}
-              <div className="bg-gray-50/80 p-5 rounded-3xl border border-gray-200 space-y-4">
-                <div className="border-b border-gray-200 pb-3">
-                  <h4 className="font-heading text-sm font-black text-gray-900 flex items-center gap-2">
-                    <span>📅 Option 2: Schedule Override for Specific Period Number</span>
-                  </h4>
-                  <p className="text-xs text-gray-500 font-medium">
-                    Easily schedule the winning result for ANY specific Period Number in advance (e.g., target current, next or future period).
-                  </p>
-                </div>
-
-                <form onSubmit={handleSchedulePeriodSubmit} className="space-y-4 max-w-2xl">
-                  {/* Period Quick Select & Custom Input */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-extrabold text-gray-700 block">Target Period Number ID</label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="e.g. 100245 or 202608031024"
-                        value={schedulePeriodInput}
-                        onChange={e => setSchedulePeriodInput(e.target.value)}
-                        className="flex-1 bg-white border border-gray-300 rounded-2xl px-4 py-3 text-sm font-mono font-bold text-gray-900 focus:outline-none focus:border-[#ff5353]"
-                      />
-
-                      {/* Quick Prefill Buttons */}
-                      {overrideInfo?.activePeriod && (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setSchedulePeriodInput(overrideInfo.activePeriod)}
-                            className="px-3 py-2.5 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 rounded-xl text-xs font-bold transition"
-                          >
-                            Current (#{overrideInfo.activePeriod})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const num = parseInt(overrideInfo.activePeriod, 10);
-                              if (!isNaN(num)) setSchedulePeriodInput(String(num + 1));
-                            }}
-                            className="px-3 py-2.5 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 rounded-xl text-xs font-bold transition"
-                          >
-                            Next (#{parseInt(overrideInfo.activePeriod, 10) + 1})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const num = parseInt(overrideInfo.activePeriod, 10);
-                              if (!isNaN(num)) setSchedulePeriodInput(String(num + 2));
-                            }}
-                            className="px-3 py-2.5 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 rounded-xl text-xs font-bold transition"
-                          >
-                            +2 Period
-                          </button>
+                  {/* Explicit Statement Banner for Selected Result & Target Period */}
+                  {overrideInfo?.activeOverrideNumber !== null && overrideInfo?.activeOverrideNumber !== undefined ? (
+                    <div className="p-4 rounded-2xl bg-amber-500/10 border-2 border-amber-400 space-y-2 shadow-xs">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2 text-amber-900 font-black text-xs sm:text-sm">
+                          <span className="relative flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                          </span>
+                          <span>🎯 ACTIVE OVERRIDE: Number {overrideInfo.activeOverrideNumber} set for Period #{overrideInfo.activePeriod}</span>
                         </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Target Winning Number Select */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-extrabold text-gray-700 block">Target Winning Number (0 - 9)</label>
-                    <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
-                      {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
                         <button
-                          key={n}
                           type="button"
-                          onClick={() => setScheduleNumberInput(n)}
-                          className={`py-2.5 rounded-xl border text-sm font-black transition ${
-                            scheduleNumberInput === n
-                              ? 'bg-[#ff5353] text-white border-[#ff5353] shadow-md ring-2 ring-[#ff5353]/30'
-                              : 'bg-white text-gray-800 border-gray-200 hover:border-gray-400'
-                          }`}
+                          onClick={() => handleSetNextOverride(null)}
+                          className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold rounded-xl transition shadow-xs"
                         >
-                          {n}
+                          🔄 Cancel Override & Reset Auto
                         </button>
-                      ))}
+                      </div>
+                      <p className="text-xs font-bold text-amber-950 leading-relaxed">
+                        Period <span className="font-mono bg-amber-200/80 px-1.5 py-0.5 rounded font-black text-amber-900">#{overrideInfo.activePeriod}</span> ({selectedOverrideRoom === 'WINGO_30S' ? '30s Window' : '1 Min Window'}) par winner result strictly <span className="bg-amber-400 text-black px-2 py-0.5 rounded font-black font-mono">Number {overrideInfo.activeOverrideNumber}</span> severe hone wala hai.
+                      </p>
                     </div>
+                  ) : (
+                    <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 space-y-1.5 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-slate-800 font-extrabold text-xs sm:text-sm">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span>⚡ AUTOMATIC FAIR-PLAY ALGORITHM ACTIVE</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-200 px-2.5 py-0.5 rounded-full">
+                          Target Period #{overrideInfo?.activePeriod || '...'}
+                        </span>
+                      </div>
+                      <p className="text-xs font-medium text-slate-600 leading-relaxed">
+                        Result automatic compute ho raha hai. Kisi specific number ko winner banane ke liye upar diye number par click karein.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSetNextOverride(null)}
+                      className="px-5 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs rounded-2xl transition"
+                    >
+                      🔄 Reset Auto Mode for Next Round
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* SECTION 2: SCHEDULE SPECIFIC FUTURE PERIOD */}
+              {overrideSubTab === 'SCHEDULE' && (
+                <div className="bg-gray-50/80 p-5 rounded-3xl border border-gray-200 space-y-4">
+                  <div className="border-b border-gray-200 pb-3">
+                    <h4 className="font-heading text-sm font-black text-gray-900 flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-[#ff5353]" />
+                      <span>Schedule Override for Specific Future Period</span>
+                    </h4>
+                    <p className="text-xs text-gray-500 font-medium">
+                      Schedule the winning result for ANY upcoming period in advance.
+                    </p>
                   </div>
 
-                  <button
-                    type="submit"
-                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl text-xs transition shadow-md active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <span>✅ Schedule Result for Period #{schedulePeriodInput || '...'}</span>
-                  </button>
-                </form>
-              </div>
+                  <form onSubmit={handleSchedulePeriodSubmit} className="space-y-4 max-w-2xl">
+                    {/* Period Input with Quick Prefills */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-extrabold text-gray-700 block">Target Period Number ID</label>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          placeholder="e.g. 100245"
+                          value={schedulePeriodInput}
+                          onChange={e => setSchedulePeriodInput(e.target.value)}
+                          className="w-full bg-white border border-gray-300 rounded-2xl px-4 py-3 text-sm font-mono font-bold text-gray-900 focus:outline-none focus:border-[#ff5353]"
+                        />
 
-              {/* Section C: Active & Scheduled Overrides List */}
+                        {/* Quick Prefill Buttons */}
+                        {overrideInfo?.activePeriod && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] text-gray-500 font-bold mr-1">Quick Select:</span>
+                            <button
+                              type="button"
+                              onClick={() => setSchedulePeriodInput(overrideInfo.activePeriod)}
+                              className="px-2.5 py-1 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 rounded-xl text-xs font-bold transition"
+                            >
+                              Current (#{overrideInfo.activePeriod})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const num = parseInt(overrideInfo.activePeriod, 10);
+                                if (!isNaN(num)) setSchedulePeriodInput(String(num + 1));
+                              }}
+                              className="px-2.5 py-1 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 rounded-xl text-xs font-bold transition"
+                            >
+                              Next (#{parseInt(overrideInfo.activePeriod, 10) + 1})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const num = parseInt(overrideInfo.activePeriod, 10);
+                                if (!isNaN(num)) setSchedulePeriodInput(String(num + 2));
+                              }}
+                              className="px-2.5 py-1 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 rounded-xl text-xs font-bold transition"
+                            >
+                              +2 (#{parseInt(overrideInfo.activePeriod, 10) + 2})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const num = parseInt(overrideInfo.activePeriod, 10);
+                                if (!isNaN(num)) setSchedulePeriodInput(String(num + 5));
+                              }}
+                              className="px-2.5 py-1 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 rounded-xl text-xs font-bold transition"
+                            >
+                              +5 (#{parseInt(overrideInfo.activePeriod, 10) + 5})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const num = parseInt(overrideInfo.activePeriod, 10);
+                                if (!isNaN(num)) setSchedulePeriodInput(String(num + 10));
+                              }}
+                              className="px-2.5 py-1 bg-white border border-gray-200 hover:bg-gray-100 text-gray-800 rounded-xl text-xs font-bold transition"
+                            >
+                              +10 (#{parseInt(overrideInfo.activePeriod, 10) + 10})
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Winning Number Selector */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-extrabold text-gray-700 block">Target Winning Number (0 - 9)</label>
+                      <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+                        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setScheduleNumberInput(n)}
+                            className={`py-2.5 rounded-xl border text-sm font-black transition ${
+                              scheduleNumberInput === n
+                                ? 'bg-[#ff5353] text-white border-[#ff5353] shadow-md ring-2 ring-[#ff5353]/30'
+                                : 'bg-white text-gray-800 border-gray-200 hover:border-gray-400'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl text-xs transition shadow-md active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Lock Result for Period #{schedulePeriodInput || '...'} as Number {scheduleNumberInput}</span>
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* SECTION 3: SCHEDULED OVERRIDES LIST */}
               {overrideInfo?.scheduledOverrides && overrideInfo.scheduledOverrides.length > 0 && (
                 <div className="bg-amber-50/80 border border-amber-200 p-4 rounded-3xl space-y-3">
-                  <h4 className="font-heading text-xs font-black text-amber-900 uppercase tracking-wide flex items-center gap-2">
-                    <span>📌 Active Scheduled Period Overrides ({overrideInfo.scheduledOverrides.length})</span>
-                  </h4>
-
-                  <div className="overflow-x-auto rounded-2xl border border-amber-200 bg-white">
-                    <table className="w-full text-left text-xs text-gray-700">
-                      <thead className="bg-amber-100/60 text-amber-900 font-black text-[10px] uppercase border-b border-amber-200">
-                        <tr>
-                          <th className="py-2.5 px-3">Period ID</th>
-                          <th className="py-2.5 px-3">Game Window</th>
-                          <th className="py-2.5 px-3">Scheduled Result</th>
-                          <th className="py-2.5 px-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-amber-100">
-                        {overrideInfo.scheduledOverrides.map((item: any) => (
-                          <tr key={item.period} className="hover:bg-amber-50/40">
-                            <td className="py-2.5 px-3 font-mono font-bold text-gray-900">#{item.period}</td>
-                            <td className="py-2.5 px-3 font-bold text-gray-600">
-                              {item.room === 'WINGO_30S' ? 'Win Go 30s' : item.room === 'WINGO_1M' ? 'Win Go 1 Min' : item.room}
-                            </td>
-                            <td className="py-2.5 px-3 font-bold">
-                              <span className="px-2.5 py-1 bg-amber-100 text-amber-900 rounded-lg font-mono font-black">
-                                Number {item.number}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-right">
-                              <button
-                                onClick={() => handleClearScheduled(item.period, item.room)}
-                                className="px-3 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 font-extrabold rounded-lg text-xs transition"
-                              >
-                                Clear
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-heading text-xs font-black text-amber-900 uppercase tracking-wide flex items-center gap-2">
+                      <span>📌 Active Scheduled Period Overrides ({overrideInfo.scheduledOverrides.length})</span>
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowScheduledList(!showScheduledList)}
+                      className="text-xs font-bold text-amber-800 hover:text-amber-950 underline"
+                    >
+                      {showScheduledList ? 'Hide List ▲' : 'Show List ▼'}
+                    </button>
                   </div>
+
+                  {showScheduledList && (
+                    <div className="overflow-x-auto rounded-2xl border border-amber-200 bg-white">
+                      <table className="w-full text-left text-xs text-gray-700">
+                        <thead className="bg-amber-100/60 text-amber-900 font-black text-[10px] uppercase border-b border-amber-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Period ID</th>
+                            <th className="py-2.5 px-3">Game Window</th>
+                            <th className="py-2.5 px-3">Scheduled Result</th>
+                            <th className="py-2.5 px-3">Status</th>
+                            <th className="py-2.5 px-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-amber-100">
+                          {overrideInfo.scheduledOverrides.map((item: any) => {
+                            const isCurrent = item.period === overrideInfo?.activePeriod;
+                            return (
+                              <tr key={`${item.room || 'WINGO_30S'}-${item.period}`} className="hover:bg-amber-50/40">
+                                <td className="py-2.5 px-3 font-mono font-bold text-gray-900">#{item.period}</td>
+                                <td className="py-2.5 px-3 font-bold text-gray-600">
+                                  {item.room === 'WINGO_30S' ? 'Win Go 30s' : item.room === 'WINGO_1M' ? 'Win Go 1 Min' : item.room}
+                                </td>
+                                <td className="py-2.5 px-3 font-bold">
+                                  <span className="px-2.5 py-1 bg-amber-100 text-amber-900 rounded-lg font-mono font-black">
+                                    Number {item.number}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  {isCurrent ? (
+                                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-extrabold text-[10px]">
+                                      🟢 LIVE ACTIVE
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-extrabold text-[10px]">
+                                      ⏳ UPCOMING
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <button
+                                    onClick={() => handleClearScheduled(item.period, item.room)}
+                                    className="px-3 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 font-extrabold rounded-lg text-xs transition"
+                                  >
+                                    Clear
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

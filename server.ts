@@ -421,10 +421,10 @@ export async function checkAndProcessRounds() {
         .map(rd => parseInt(rd.period, 10))
         .filter(n => !isNaN(n) && n < currentNum);
 
-      let lastProcessedNum = completedNums.length > 0 ? Math.max(...completedNums) : currentNum - 1;
+      let lastProcessedNum = completedNums.length > 0 ? Math.max(...completedNums) : currentNum - 50;
 
-      // Catch up all missing periods sequentially (up to 50 max catchup rounds per turn)
-      const catchupLimit = Math.min(currentNum - 1, lastProcessedNum + 50);
+      // Catch up all missing periods sequentially (up to 100 max catchup rounds per turn)
+      const catchupLimit = Math.min(currentNum - 1, lastProcessedNum + 100);
       for (let pNum = lastProcessedNum + 1; pNum <= catchupLimit; pNum++) {
         const pStr = String(pNum);
         
@@ -768,10 +768,51 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
 
 // --- API ROUTES ---
 
-// Health & Sync
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: Date.now() });
-});
+// BetterStack & Uptime Monitoring Ping Endpoints (Auto-runs checkAndProcessRounds)
+const handleHealthCheck = async (req: express.Request, res: express.Response) => {
+  try {
+    await checkAndProcessRounds();
+  } catch (err) {
+    console.error('Error in health check round processing:', err);
+  }
+  const now = Date.now();
+  const room30 = getActivePeriod('WINGO_30S');
+  const room1m = getActivePeriod('WINGO_1M');
+
+  res.status(200).json({
+    status: 'healthy',
+    service: 'Realwin Engine',
+    uptime: process.uptime(),
+    timestamp: now,
+    iso: new Date(now).toISOString(),
+    activePeriods: {
+      WINGO_30S: {
+        period: room30.period,
+        secondsRemaining: room30.secondsRemaining,
+        isLocked: room30.isLocked,
+      },
+      WINGO_1M: {
+        period: room1m.period,
+        secondsRemaining: room1m.secondsRemaining,
+        isLocked: room1m.isLocked,
+      },
+    },
+    databaseSync: isSupabaseConfigured ? 'connected' : 'local_storage',
+    totalProcessedRounds: state.rounds.length,
+    registeredUsersCount: state.users.length,
+  });
+};
+
+app.get('/api/health', handleHealthCheck);
+app.head('/api/health', (req, res) => { checkAndProcessRounds(); res.status(200).end(); });
+app.get('/health', handleHealthCheck);
+app.head('/health', (req, res) => { checkAndProcessRounds(); res.status(200).end(); });
+app.get('/api/ping', handleHealthCheck);
+app.head('/api/ping', (req, res) => { checkAndProcessRounds(); res.status(200).end(); });
+app.get('/ping', handleHealthCheck);
+app.head('/ping', (req, res) => { checkAndProcessRounds(); res.status(200).end(); });
+app.all('/api/cron/keepalive', handleHealthCheck);
+app.get('/api/uptime', handleHealthCheck);
 
 // Get current game state
 app.get('/api/game/state', async (req, res) => {
@@ -1562,13 +1603,13 @@ app.post('/api/wallet/withdraw', async (req, res) => {
     });
   }
 
-  // Check if user has deposited at least ₹300 before withdrawing
+  // Check if user has deposited at least ₹500 before withdrawing
   const userApprovedDeposits = state.deposits.filter(d => (d.userId === userId || d.userPhone === user.phone) && d.status === 'APPROVED');
   const totalDeposits = userApprovedDeposits.reduce((sum, d) => sum + d.amount, 0);
 
-  if (totalDeposits < 300) {
+  if (totalDeposits < 500) {
     return res.status(400).json({
-      error: 'Account verification requirement: You must make a deposit of at least ₹300 before placing withdrawal requests.'
+      error: 'Account verification requirement: You must make a deposit of at least ₹500 before placing withdrawal requests.'
     });
   }
 
@@ -2164,9 +2205,32 @@ app.get('/api/admin/override-info', (req, res) => {
   const scheduledForActive = scheduledOverrides[roomPeriodKey] || scheduledOverrides[period];
   const activeOverrideNumber = scheduledForActive?.number !== undefined ? Number(scheduledForActive.number) : roomOverride ?? globalOverride ?? null;
 
-  // Filter scheduled overrides for this room
-  const scheduledList = Object.values(scheduledOverrides).filter(
-    (s: any) => !s.room || s.room === room
+  // Deduplicate and filter scheduled overrides for this room
+  const currentActiveNum = parseInt(period, 10);
+  const dedupMap = new Map<string, any>();
+
+  Object.entries(scheduledOverrides).forEach(([key, val]: [string, any]) => {
+    if (val && val.period) {
+      const itemRoom = val.room || 'WINGO_30S';
+      const itemNum = parseInt(val.period, 10);
+      const uniqueKey = `${itemRoom}:${val.period}`;
+      
+      // Auto prune past expired overrides
+      if (!isNaN(itemNum) && !isNaN(currentActiveNum) && itemNum < currentActiveNum && itemRoom === room) {
+        delete scheduledOverrides[key];
+      } else if (!dedupMap.has(uniqueKey)) {
+        dedupMap.set(uniqueKey, {
+          period: val.period,
+          room: itemRoom,
+          number: Number(val.number),
+          createdAt: val.createdAt || Date.now(),
+        });
+      }
+    }
+  });
+
+  const scheduledList = Array.from(dedupMap.values()).filter(
+    (s: any) => s.room === room || (!s.room && room === 'WINGO_30S')
   );
 
   // Live bets for active period & room
@@ -2188,7 +2252,7 @@ app.get('/api/admin/override-info', (req, res) => {
     globalOverride,
     activeOverrideNumber,
     scheduledOverrides: scheduledList,
-    allScheduledOverrides: Object.values(scheduledOverrides),
+    allScheduledOverrides: Array.from(dedupMap.values()),
     allRoomOverrides: roomOverrides,
     activeBetsCount: activeBets.length,
     activeBetsVolume: activeBets.reduce((acc, b) => acc + b.amount, 0),
@@ -2205,10 +2269,11 @@ app.post('/api/admin/override-number', async (req, res) => {
 
   const { period: currentActivePeriod } = getActivePeriod(targetRoom);
   const targetPeriod = (period && String(period).trim()) ? String(period).trim() : currentActivePeriod;
+  const roomPeriodKey = `${targetRoom}:${targetPeriod}`;
 
   // Case 1: Clear Override
   if (number === null || number === undefined || number === '') {
-    delete (state as any).scheduledOverrides[`${targetRoom}:${targetPeriod}`];
+    delete (state as any).scheduledOverrides[roomPeriodKey];
     delete (state as any).scheduledOverrides[targetPeriod];
     (state as any).roomOverrides[targetRoom] = null;
     state.settings.manualOverrideNumber = null;
@@ -2297,20 +2362,17 @@ app.post('/api/admin/override-number', async (req, res) => {
     });
   }
 
-  // Schedule for current active period or upcoming period
-  const key = `${targetRoom}:${targetPeriod}`;
-  (state as any).scheduledOverrides[key] = {
+  // Schedule for current active period or upcoming period strictly under roomPeriodKey
+  (state as any).scheduledOverrides[roomPeriodKey] = {
     period: targetPeriod,
     room: targetRoom,
     number: num,
     createdAt: Date.now(),
   };
-  (state as any).scheduledOverrides[targetPeriod] = {
-    period: targetPeriod,
-    room: targetRoom,
-    number: num,
-    createdAt: Date.now(),
-  };
+
+  // Clean up any legacy single-period key to prevent duplicates
+  delete (state as any).scheduledOverrides[targetPeriod];
+
   (state as any).roomOverrides[targetRoom] = {
     number: num,
     forPeriod: targetPeriod,
@@ -2355,10 +2417,11 @@ app.post('/api/admin/clear-scheduled-override', (req, res) => {
   const { period, room } = req.body;
   if (!period) return res.status(400).json({ error: 'Period ID is required' });
 
+  const targetRoom = room || 'WINGO_30S';
   if ((state as any).scheduledOverrides) {
-    if (room) {
-      delete (state as any).scheduledOverrides[`${room}:${period}`];
-    }
+    delete (state as any).scheduledOverrides[`${targetRoom}:${period}`];
+    delete (state as any).scheduledOverrides[`WINGO_30S:${period}`];
+    delete (state as any).scheduledOverrides[`WINGO_1M:${period}`];
     delete (state as any).scheduledOverrides[period];
     saveState();
   }

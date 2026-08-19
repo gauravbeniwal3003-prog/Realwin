@@ -186,6 +186,9 @@ export default function App() {
   const userRef = useRef<User | null>(user);
   userRef.current = user;
 
+  const myBetsRef = useRef<Bet[]>(myBets);
+  myBetsRef.current = myBets;
+
   const isSyncingRef = useRef<boolean>(false);
 
   const syncServer = useCallback(async () => {
@@ -197,15 +200,24 @@ export default function App() {
       const state = await fetchGameState(room);
       setGameState(state);
 
-      if (state.period !== lastPeriodIdRef.current) {
-        setLastPeriodId(state.period);
-        lastPeriodIdRef.current = state.period;
+      // Check if we have any pending bets from a past period
+      const hasPastPendingBets = myBetsRef.current.some(b => {
+        const bNum = parseInt(b.period, 10);
+        const sNum = parseInt(state.period, 10);
+        return b.status === 'PENDING' && !isNaN(bNum) && !isNaN(sNum) && bNum < sNum;
+      });
 
-        try {
-          const histData = await fetchGameHistory(1, 100, room);
-          setHistory(histData.rounds);
-        } catch (_) {
-          // Ignore transient history fetch error
+      if (state.period !== lastPeriodIdRef.current || hasPastPendingBets) {
+        if (state.period !== lastPeriodIdRef.current) {
+          setLastPeriodId(state.period);
+          lastPeriodIdRef.current = state.period;
+
+          try {
+            const histData = await fetchGameHistory(1, 100, room);
+            setHistory(histData.rounds);
+          } catch (_) {
+            // Ignore transient history fetch error
+          }
         }
 
         const currentUser = userRef.current;
@@ -241,10 +253,13 @@ export default function App() {
           return prev;
         }
         const newSecs = prev.secondsRemaining - 1;
-        if (newSecs === 0 || newSecs === 1) {
-          // Instantly sync server to retrieve completed round outcome
+        if (newSecs === 0) {
+          // Instantly poll multiple times right at transition to minimize any lag
           setTimeout(syncServer, 50);
-          setTimeout(syncServer, 500);
+          setTimeout(syncServer, 300);
+          setTimeout(syncServer, 600);
+          setTimeout(syncServer, 1000);
+          setTimeout(syncServer, 1500);
         }
         return {
           ...prev,

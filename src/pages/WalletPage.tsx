@@ -245,7 +245,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     .filter(d => (d.userId === user?.id || d.userPhone === user?.phone) && d.status === 'APPROVED')
     .reduce((sum, d) => sum + d.amount, 0);
 
-  const hasDepositedMin300 = totalUserApprovedDeposits >= 300;
+  const hasDepositedMin500 = totalUserApprovedDeposits >= 500;
   const unwageredDeposit = user?.unwageredDeposit || 0;
   const withdrawableBalance = Math.max(0, (user?.balance || 0) - unwageredDeposit);
 
@@ -303,10 +303,10 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     e.preventDefault();
     if (!user) return;
 
-    if (!hasDepositedMin300) {
+    if (!hasDepositedMin500) {
       setWithdrawStatusMsg({
         type: 'ERROR',
-        text: 'Minimum ₹300 deposit required before sending a withdrawal request. Please make a deposit first via Cashfree.'
+        text: 'Minimum ₹500 deposit required before sending a withdrawal request. Please make a deposit first via Cashfree.'
       });
       return;
     }
@@ -568,7 +568,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           {/* WITHDRAW TAB */}
           {activeTab === 'WITHDRAW' && (
             <form onSubmit={handleWithdrawalSubmit} className="space-y-4">
-              {!hasDepositedMin300 && (
+              {!hasDepositedMin500 && (
                 <div className="bg-rose-50 border border-rose-200 p-4 rounded-3xl flex items-start gap-3 shadow-xs">
                   <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                   <div className="text-xs text-rose-900 leading-relaxed space-y-1">
@@ -576,7 +576,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                       Deposit Required Before First Withdrawal
                     </strong>
                     <p className="text-[11px] font-medium text-rose-900">
-                      To activate withdrawal requests, you need to make a minimum deposit of at least ₹300.
+                      To activate withdrawal requests, you need to make a minimum deposit of at least ₹500.
                     </p>
                   </div>
                 </div>

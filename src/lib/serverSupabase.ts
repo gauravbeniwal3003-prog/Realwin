@@ -198,14 +198,28 @@ export async function saveGameRoundToSupabase(round: GameRound): Promise<void> {
     };
 
     // Query if the round already exists to prevent duplicate key violations and duplicate row insertions
-    const { data: existing } = await supabase
+    const { data: existingRows } = await supabase
       .from('game_rounds')
       .select('period')
       .eq('period', String(round.period))
-      .eq('room', round.room || 'WINGO_30S')
-      .maybeSingle();
+      .eq('room', round.room || 'WINGO_30S');
 
-    if (existing) {
+    if (existingRows && existingRows.length > 1) {
+      // Clean up duplicates by deleting them first
+      await supabase
+        .from('game_rounds')
+        .delete()
+        .eq('period', String(round.period))
+        .eq('room', round.room || 'WINGO_30S');
+
+      // Insert a single clean row
+      const { error } = await supabase
+        .from('game_rounds')
+        .insert(payload);
+      if (error) {
+        console.warn('⚠️ Supabase clean-insert error:', error.message);
+      }
+    } else if (existingRows && existingRows.length === 1) {
       // Update existing row
       const { error } = await supabase
         .from('game_rounds')
