@@ -33,6 +33,9 @@ export interface Bet {
   createdAt: number;
   multiplier: number;
   resultNumber?: number;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  payoutBalanceAfter?: number;
 }
 
 export interface User {

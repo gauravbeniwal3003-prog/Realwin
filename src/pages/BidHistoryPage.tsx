@@ -407,6 +407,32 @@ export const BidHistoryPage: React.FC<BidHistoryPageProps> = ({
                       </div>
                     </div>
                   )}
+
+                  {/* Wallet Balance Math Audit Trail */}
+                  {(bet.balanceBefore !== undefined || bet.balanceAfter !== undefined || bet.payoutBalanceAfter !== undefined) && (
+                    <div className="mt-2 pt-2 border-t border-gray-100 bg-gray-50/80 rounded-xl p-2 text-[10px] space-y-1 font-mono text-gray-600">
+                      <div className="flex justify-between items-center font-semibold">
+                        <span className="text-gray-500">💰 Balance Before Bid:</span>
+                        <span className="text-gray-900 font-bold">₹{(bet.balanceBefore ?? 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center font-semibold">
+                        <span className="text-gray-500">🔻 Deduction (-₹{bet.amount}):</span>
+                        <span className="text-rose-600 font-bold">₹{(bet.balanceAfter ?? 0).toFixed(2)}</span>
+                      </div>
+                      {bet.status === 'WON' && (
+                        <div className="flex justify-between items-center font-semibold bg-emerald-50 text-emerald-800 p-1 rounded-md border border-emerald-200/60">
+                          <span>🎉 Win Credit (+₹{bet.payout}):</span>
+                          <span className="text-emerald-700 font-black">₹{(bet.payoutBalanceAfter ?? 0).toFixed(2)}</span>
+                        </div>
+                      )}
+                      {bet.status === 'LOST' && (
+                        <div className="flex justify-between items-center font-semibold text-gray-500">
+                          <span>Final Settled Balance:</span>
+                          <span className="text-gray-800 font-bold">₹{(bet.payoutBalanceAfter ?? bet.balanceAfter ?? 0).toFixed(2)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })

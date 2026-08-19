@@ -73,6 +73,15 @@ export const MyBets: React.FC<MyBetsProps> = ({ bets, onRefresh }) => {
                       second: '2-digit',
                     })}
                   </span>
+
+                  {(bet.balanceBefore !== undefined || bet.balanceAfter !== undefined) && (
+                    <div className="text-[10px] text-slate-400 font-mono pt-1 space-y-0.5">
+                      <div>Bal Before: ₹{(bet.balanceBefore ?? 0).toFixed(2)} | After: ₹{(bet.balanceAfter ?? 0).toFixed(2)}</div>
+                      {bet.status === 'WON' && bet.payoutBalanceAfter !== undefined && (
+                        <div className="text-emerald-400 font-semibold">🎉 Win Credited → Final Bal: ₹{bet.payoutBalanceAfter.toFixed(2)}</div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Right: Status & Payout */}

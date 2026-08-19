@@ -268,6 +268,9 @@ export async function loadBetsFromSupabase(): Promise<Bet[]> {
       createdAt: Number(b.created_at),
       multiplier: Number(b.multiplier || 0),
       resultNumber: b.result_number !== null && b.result_number !== undefined ? Number(b.result_number) : undefined,
+      balanceBefore: b.balance_before !== null && b.balance_before !== undefined ? Number(b.balance_before) : undefined,
+      balanceAfter: b.balance_after !== null && b.balance_after !== undefined ? Number(b.balance_after) : undefined,
+      payoutBalanceAfter: b.payout_balance_after !== null && b.payout_balance_after !== undefined ? Number(b.payout_balance_after) : undefined,
     }));
   } catch (err) {
     console.error('Error loading bets from Supabase:', err);
@@ -278,7 +281,7 @@ export async function loadBetsFromSupabase(): Promise<Bet[]> {
 export async function saveBetToSupabase(bet: Bet): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
-    await supabase.from('bets').upsert({
+    const fullPayload = {
       id: bet.id,
       user_id: bet.userId,
       user_name: bet.userName,
@@ -291,7 +294,30 @@ export async function saveBetToSupabase(bet: Bet): Promise<void> {
       created_at: bet.createdAt,
       multiplier: bet.multiplier,
       result_number: bet.resultNumber ?? null,
-    });
+      balance_before: bet.balanceBefore ?? null,
+      balance_after: bet.balanceAfter ?? null,
+      payout_balance_after: bet.payoutBalanceAfter ?? null,
+    };
+
+    let { error } = await supabase.from('bets').upsert(fullPayload, { onConflict: 'id' });
+    if (error) {
+      // Fallback: exclude audit columns if schema hasn't migrated yet
+      const fallbackPayload = {
+        id: bet.id,
+        user_id: bet.userId,
+        user_name: bet.userName,
+        period: bet.period,
+        room: bet.room,
+        selection: bet.selection,
+        amount: bet.amount,
+        payout: bet.payout,
+        status: bet.status,
+        created_at: bet.createdAt,
+        multiplier: bet.multiplier,
+        result_number: bet.resultNumber ?? null,
+      };
+      await supabase.from('bets').upsert(fallbackPayload, { onConflict: 'id' });
+    }
   } catch (err) {
     console.error('Error saving bet to Supabase:', err);
   }

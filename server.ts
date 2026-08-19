@@ -525,18 +525,24 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     bet.resultNumber = winningNum;
     bet.multiplier = payoutMultiplier;
 
+    const u = state.users.find(usr => usr.id === bet.userId || usr.phone === bet.userId);
+
     if (won) {
       const winAmount = Math.floor(bet.amount * payoutMultiplier);
       bet.payout = winAmount;
       totalPayoutAmt += winAmount;
 
       // Credit user balance
-      const u = state.users.find(usr => usr.id === bet.userId);
       if (u) {
         u.balance += winAmount;
+        bet.payoutBalanceAfter = u.balance;
+        console.log(`[WIN CREDITED] User ${u.phone} WON ₹${winAmount} on ${bet.selection}! Balance updated to ₹${u.balance}`);
       }
     } else {
       bet.payout = 0;
+      if (u) {
+        bet.payoutBalanceAfter = u.balance;
+      }
     }
   });
 
@@ -568,7 +574,7 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     // Sync ALL users who placed bets in this round (both winners AND losers)
     const participantUserIds = new Set(roundBets.map(b => b.userId));
     for (const uid of participantUserIds) {
-      const u = state.users.find(usr => usr.id === uid);
+      const u = state.users.find(usr => usr.id === uid || usr.phone === uid);
       if (u) {
         await saveUserToSupabase(u);
       }
@@ -861,28 +867,49 @@ app.post('/api/game/bet', async (req, res) => {
     return res.status(403).json({ error: 'Device Banned: Access restricted due to policy violation.', isBanned: true });
   }
 
+  // Opposite Bidding Constraint: Cannot bid on both BIG and SMALL in the same period
+  const existingUserPeriodBets = state.bets.filter(b => 
+    (b.userId === userId || b.userId === user.id) && 
+    b.period === period && 
+    b.room === targetRoom &&
+    b.status === 'PENDING'
+  );
+
+  if (cleanSelection === 'BIG' && existingUserPeriodBets.some(b => b.selection === 'SMALL')) {
+    return res.status(400).json({ error: 'Opposite Bidding Restricted: You cannot bid on both BIG and SMALL in the same period!' });
+  }
+
+  if (cleanSelection === 'SMALL' && existingUserPeriodBets.some(b => b.selection === 'BIG')) {
+    return res.status(400).json({ error: 'Opposite Bidding Restricted: You cannot bid on both BIG and SMALL in the same period!' });
+  }
+
   if (user.balance < numAmount) {
     return res.status(400).json({ error: 'Insufficient wallet balance! Please deposit funds to place bids.' });
   }
 
-  // Deduct balance immediately on server (Server-authoritative)
+  // Record wallet balance audit trail before and after bet deduction
+  const balanceBefore = user.balance;
   user.balance -= numAmount;
+  const balanceAfter = user.balance;
+
   if (user.unwageredDeposit && user.unwageredDeposit > 0) {
     user.unwageredDeposit = Math.max(0, user.unwageredDeposit - numAmount);
   }
 
   const newBet: Bet = {
     id: 'bet_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-    userId,
+    userId: user.id,
     userName: user.name,
     period,
     room: targetRoom as RoomType,
     selection: selection as BetSelection,
-    amount,
+    amount: numAmount,
     payout: 0,
     status: 'PENDING',
     createdAt: Date.now(),
     multiplier: 1,
+    balanceBefore,
+    balanceAfter,
   };
 
   state.bets.unshift(newBet);
