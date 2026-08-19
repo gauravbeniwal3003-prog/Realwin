@@ -112,12 +112,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const totalAmount = balancePreset * quantity * multiplier;
 
     if (!user) {
-      setBetErrorMsg('Please login to place your bid.');
+      setBetErrorMsg('Please log in to your account to place bids.');
       return;
     }
 
     if (user.balance < totalAmount) {
-      setBetErrorMsg(`Insufficient balance! Need ₹${totalAmount}, current balance is ₹${user.balance}. Please deposit.`);
+      setBetErrorMsg(`Your wallet balance is low (₹${user.balance.toFixed(2)}). You need ₹${totalAmount.toFixed(2)} for this bid. Please deposit funds.`);
       return;
     }
 
@@ -132,7 +132,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         setBetSuccessMsg(null);
       }, 1200);
     } catch (err: any) {
-      setBetErrorMsg(err.message || 'Failed to place bid');
+      let msg = err?.message || 'Unable to place bid at this moment.';
+      if (msg.includes('User account not found') || msg.includes('User not found')) {
+        msg = 'Your login session has expired or is invalid. Please log out and log in again to sync your wallet.';
+      }
+      setBetErrorMsg(msg);
     } finally {
       setIsSubmitting(false);
     }

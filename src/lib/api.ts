@@ -21,15 +21,12 @@ async function handleJsonResponse(res: Response, defaultError: string) {
       data = JSON.parse(text);
     } catch {
       if (!res.ok) {
-        if (text.includes('FUNCTION_INVOCATION_FAILED')) {
-          throw new Error(`Server Error (${res.status}): Serverless function execution issue. Check Vercel Function Logs for exact error.`);
+        if (text.includes('FUNCTION_INVOCATION_FAILED') || contentType.includes('text/html') || text.trim().startsWith('<')) {
+          throw new Error('System update in progress. Please refresh or try again in a few moments.');
         }
-        if (contentType.includes('text/html') || text.trim().startsWith('<')) {
-          throw new Error(`Server endpoint returned HTML instead of JSON (${res.status}). Verify API route deployment.`);
-        }
-        throw new Error(text || `Server Error (${res.status})`);
+        throw new Error('Server connection temporarily delayed. Please try again shortly.');
       }
-      throw new Error(`Invalid JSON response from server (${res.status})`);
+      throw new Error('Invalid response received from server.');
     }
   }
 
@@ -38,7 +35,14 @@ async function handleJsonResponse(res: Response, defaultError: string) {
   }
 
   if (!res.ok) {
-    const rawError = data.error || data.message || defaultError;
+    let rawError = data.error || data.message || defaultError;
+    if (typeof rawError === 'string') {
+      if (rawError === 'User account not found.' || rawError === 'User not found' || rawError.includes('User account not found')) {
+        rawError = 'Your login session has expired or is invalid. Please log out and log in again to sync your wallet balance.';
+      } else if (rawError === 'Failed to fetch' || rawError.includes('Failed to fetch')) {
+        rawError = 'Network connection issue. Please check your internet connection and try again.';
+      }
+    }
     throw new Error(rawError);
   }
   return data;

@@ -779,50 +779,66 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// Helper: Reliable User Lookup & Supabase Sync
+async function findAndSyncUser(userId: string): Promise<User | null> {
+  if (!userId || typeof userId !== 'string') return null;
+  const cleanId = userId.trim();
+  let user = state.users.find(u => u.id === cleanId || u.phone === cleanId) || null;
+
+  if (!user && isSupabaseConfigured) {
+    try {
+      const dbUsers = await loadUsersFromSupabase();
+      if (dbUsers && dbUsers.length > 0) {
+        state.users = dbUsers;
+        user = state.users.find(u => u.id === cleanId || u.phone === cleanId) || null;
+      }
+    } catch (_) {}
+  }
+
+  if (!user && isSupabaseConfigured) {
+    try {
+      const { data } = await supabase
+        .from('users')
+        .select('*')
+        .or(`id.eq.${cleanId},phone.eq.${cleanId}`)
+        .maybeSingle();
+
+      if (data) {
+        user = {
+          id: data.id,
+          phone: data.phone,
+          name: data.name,
+          balance: Number(data.balance || 0),
+          unwageredDeposit: Number(data.unwagered_deposit || 0),
+          isAdmin: Boolean(data.is_admin),
+          isBanned: Boolean(data.is_banned),
+          createdAt: Number(data.created_at || Date.now()),
+          referredBy: data.referred_by || undefined,
+          referralEarnings: Number(data.referral_earnings || 0),
+          boundUpiId: data.bound_upi_id || undefined,
+          upiLocked: Boolean(data.upi_locked),
+        };
+        const existingIdx = state.users.findIndex(u => u.id === user!.id);
+        if (existingIdx >= 0) state.users[existingIdx] = user;
+        else state.users.push(user);
+      }
+    } catch (_) {}
+  }
+
+  return user;
+}
+
 app.get('/api/auth/user/:id', async (req, res) => {
   try {
     const userId = req.params.id;
-    let user: User | null = null;
-
-    if (isSupabaseConfigured) {
-      try {
-        const { data, error } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
-        if (data && !error) {
-          user = {
-            id: data.id,
-            phone: data.phone,
-            name: data.name,
-            balance: Number(data.balance || 0),
-            unwageredDeposit: data.unwagered_deposit !== undefined && data.unwagered_deposit !== null ? Number(data.unwagered_deposit) : 0,
-            isAdmin: Boolean(data.is_admin),
-            createdAt: Number(data.created_at || Date.now()),
-            referredBy: data.referred_by || undefined,
-            referralEarnings: Number(data.referral_earnings || 0),
-            boundUpiId: data.bound_upi_id || undefined,
-            upiLocked: Boolean(data.upi_locked),
-          };
-          const existingIdx = state.users.findIndex(u => u.id === userId);
-          if (existingIdx >= 0) {
-            state.users[existingIdx] = user;
-          } else {
-            state.users.push(user);
-          }
-        }
-      } catch (err) {
-        console.warn('Supabase lookup on fetch user warning:', err);
-      }
-    }
+    const user = await findAndSyncUser(userId);
 
     if (!user) {
-      user = state.users.find(u => u.id === userId || u.phone === userId) || null;
-    }
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(401).json({ error: 'Your login session has expired. Please log out and log in again.' });
     }
     res.json({ user });
   } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to fetch user' });
+    res.status(500).json({ error: err?.message || 'Failed to fetch user session' });
   }
 });
 
@@ -833,38 +849,38 @@ app.post('/api/game/bet', async (req, res) => {
   const { period, isLocked } = getActivePeriod(targetRoom);
 
   if (isLocked) {
-    return res.status(400).json({ error: 'Bidding is locked for calculation in the last 5 seconds of the round!' });
+    return res.status(400).json({ error: 'Round calculation in progress! Bids are paused for the last 5 seconds of the round. Next round opens shortly.' });
   }
 
-  // Strict Validation against Request Tampering (Burp Suite / Postman attacks)
+  // Strict Validation against Request Tampering
   const ALLOWED_ROOMS = ['WINGO_30S', 'WINGO_1M', 'WINGO_3M', 'WINGO_5M'];
   const ALLOWED_SELECTIONS = ['GREEN', 'RED', 'VIOLET', 'BIG', 'SMALL', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
   if (!ALLOWED_ROOMS.includes(targetRoom)) {
-    return res.status(400).json({ error: 'Security Violation: Invalid game room selected.' });
+    return res.status(400).json({ error: 'The selected game room is currently unavailable. Please refresh or select an active room.' });
   }
 
   const cleanSelection = String(selection || '').toUpperCase().trim();
   if (!cleanSelection || !ALLOWED_SELECTIONS.includes(cleanSelection)) {
-    return res.status(400).json({ error: 'Security Violation: Invalid bet selection.' });
+    return res.status(400).json({ error: 'Please select a valid option (Green, Red, Violet, Big, Small, or a number 0-9).' });
   }
 
   const numAmount = Number(amount);
   if (!numAmount || isNaN(numAmount) || !Number.isFinite(numAmount) || numAmount < 1 || !Number.isInteger(numAmount)) {
-    return res.status(400).json({ error: 'Security Violation: Bet amount must be a positive whole integer (minimum ₹1).' });
+    return res.status(400).json({ error: 'Please enter a valid bid amount (minimum ₹1).' });
   }
 
   if (!userId || typeof userId !== 'string') {
-    return res.status(400).json({ error: 'Invalid user identification provided.' });
+    return res.status(400).json({ error: 'Session identification missing. Please log in to place bids.' });
   }
 
-  const user = state.users.find(u => u.id === userId);
+  const user = await findAndSyncUser(userId);
   if (!user) {
-    return res.status(404).json({ error: 'User account not found.' });
+    return res.status(401).json({ error: 'Your login session has expired or is invalid. Please log out and log in again to sync your account balance.' });
   }
 
   if (user.isBanned) {
-    return res.status(403).json({ error: 'Device Banned: Access restricted due to policy violation.', isBanned: true });
+    return res.status(403).json({ error: 'Your account access has been restricted. Please contact customer support for assistance.', isBanned: true });
   }
 
   // Opposite Bidding Constraint: Cannot bid on both BIG and SMALL in the same period
@@ -876,15 +892,15 @@ app.post('/api/game/bet', async (req, res) => {
   );
 
   if (cleanSelection === 'BIG' && existingUserPeriodBets.some(b => b.selection === 'SMALL')) {
-    return res.status(400).json({ error: 'Opposite Bidding Restricted: You cannot bid on both BIG and SMALL in the same period!' });
+    return res.status(400).json({ error: 'You have already placed a bid on SMALL for this round. Bidding on both BIG and SMALL in the same round is not allowed.' });
   }
 
   if (cleanSelection === 'SMALL' && existingUserPeriodBets.some(b => b.selection === 'BIG')) {
-    return res.status(400).json({ error: 'Opposite Bidding Restricted: You cannot bid on both BIG and SMALL in the same period!' });
+    return res.status(400).json({ error: 'You have already placed a bid on BIG for this round. Bidding on both BIG and SMALL in the same round is not allowed.' });
   }
 
   if (user.balance < numAmount) {
-    return res.status(400).json({ error: 'Insufficient wallet balance! Please deposit funds to place bids.' });
+    return res.status(400).json({ error: `Your wallet balance is low (₹${user.balance.toFixed(2)}). Please recharge your wallet to place this bid.` });
   }
 
   // Record wallet balance audit trail before and after bet deduction
@@ -985,22 +1001,22 @@ app.post('/api/wallet/deposit', async (req, res) => {
   const maxDep = state.settings.maxDeposit || 5000;
 
   if (isNaN(numAmount) || !Number.isFinite(numAmount) || !Number.isInteger(numAmount) || numAmount < minDep || numAmount > maxDep) {
-    return res.status(400).json({ error: `Security Violation: Deposit amount must be a positive integer between ₹${minDep} and ₹${maxDep}` });
+    return res.status(400).json({ error: `Deposit amount must be a whole integer between ₹${minDep} and ₹${maxDep}.` });
   }
 
   if (!cleanUtr || cleanUtr.length < 8 || cleanUtr.length > 35) {
-    return res.status(400).json({ error: 'Valid 12-digit UPI UTR / Ref Transaction ID is required!' });
+    return res.status(400).json({ error: 'Please enter a valid 12-digit UPI UTR / Reference Transaction ID.' });
   }
 
-  const user = state.users.find(u => u.id === userId);
+  const user = await findAndSyncUser(userId);
   if (!user) {
-    return res.status(404).json({ error: 'User not found' });
+    return res.status(401).json({ error: 'Your login session has expired. Please log out and log in again to recharge.' });
   }
 
   // Check duplicate UTR
   const dup = state.deposits.find(d => d.utr === cleanUtr);
   if (dup) {
-    return res.status(400).json({ error: 'This UTR number has already been submitted!' });
+    return res.status(400).json({ error: 'This UTR / Reference number has already been submitted for deposit.' });
   }
 
   const isAutoApproved = instantSimulated === true;
@@ -1066,9 +1082,9 @@ app.post('/api/cashfree/create-order', async (req, res) => {
       return res.status(400).json({ error: `Deposit amount must be between ₹${minDep} and ₹${maxDep}` });
     }
 
-    const user = state.users.find(u => u.id === userId);
+    const user = await findAndSyncUser(userId);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(401).json({ error: 'Your login session has expired. Please log out and log in again.' });
     }
 
     const orderId = `CF_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -1328,17 +1344,17 @@ app.post('/api/wallet/withdraw', async (req, res) => {
   const maxWth = state.settings.maxWithdrawal || 300000;
 
   if (isNaN(numAmount) || !Number.isFinite(numAmount) || !Number.isInteger(numAmount) || numAmount < minWth || numAmount > maxWth) {
-    return res.status(400).json({ error: `Security Violation: Withdrawal amount must be a positive integer between ₹${minWth} and ₹${maxWth.toLocaleString('en-IN')}` });
+    return res.status(400).json({ error: `Withdrawal amount must be a whole integer between ₹${minWth} and ₹${maxWth.toLocaleString('en-IN')}.` });
   }
 
-  const user = state.users.find(u => u.id === userId);
+  const user = await findAndSyncUser(userId);
   if (!user) {
-    return res.status(404).json({ error: 'User not found' });
+    return res.status(401).json({ error: 'Your login session has expired. Please log out and log in again to request a withdrawal.' });
   }
 
   if (user.isBanned) {
     return res.status(403).json({
-      error: 'Device & Account Banned: Your access has been restricted due to policy violation.',
+      error: 'Your account access has been restricted. Please contact customer support for assistance.',
       isBanned: true,
     });
   }
@@ -1349,7 +1365,7 @@ app.post('/api/wallet/withdraw', async (req, res) => {
 
   if (totalDeposits < 300) {
     return res.status(400).json({
-      error: 'Withdrawal Locked: You must make a deposit of at least ₹300 before placing withdrawal requests.'
+      error: 'Account verification requirement: You must make a deposit of at least ₹300 before placing withdrawal requests.'
     });
   }
 
@@ -1359,18 +1375,18 @@ app.post('/api/wallet/withdraw', async (req, res) => {
 
   if (numAmount > withdrawableBalance) {
     return res.status(400).json({
-      error: `Withdrawal Locked: You must place bets worth ₹${Math.ceil(unwagered)} more before withdrawing. Current Withdrawable (Winning) Balance is ₹${Math.floor(withdrawableBalance)}.`
+      error: `Wagering turnover required: You need to place ₹${Math.ceil(unwagered)} more in bids before withdrawing these funds. Current withdrawable winning balance is ₹${Math.floor(withdrawableBalance)}.`
     });
   }
 
   if (user.balance < amount) {
-    return res.status(400).json({ error: 'Insufficient balance to request withdrawal!' });
+    return res.status(400).json({ error: 'Your requested withdrawal amount exceeds your available wallet balance.' });
   }
 
   let finalUpiId = cleanUpiId;
   if (type === 'UPI') {
     if (!cleanUpiId || !cleanUpiId.includes('@')) {
-      return res.status(400).json({ error: 'Please enter a valid UPI ID (e.g. name@upi)' });
+      return res.status(400).json({ error: 'Please enter a valid UPI ID (e.g. user@upi)' });
     }
 
     // Handle UPI ID locking logic
@@ -1380,7 +1396,7 @@ app.post('/api/wallet/withdraw', async (req, res) => {
       user.upiLocked = true;
     } else if (user.upiLocked && user.boundUpiId !== cleanUpiId) {
       return res.status(400).json({ 
-        error: `Your account is locked to UPI ID: ${user.boundUpiId}. To change your bound UPI ID, click "Unlock & Change UPI ID" (Requires ₹500 fee).` 
+        error: `Your account is locked to UPI ID: ${user.boundUpiId}. To change your bound UPI ID, click "Unlock & Change UPI ID" (requires a ₹500 fee).` 
       });
     }
     finalUpiId = user.boundUpiId;
@@ -1388,7 +1404,7 @@ app.post('/api/wallet/withdraw', async (req, res) => {
 
   if (type === 'BANK') {
     if (!bankDetails?.accountNumber || !bankDetails?.ifscCode || !bankDetails?.holderName) {
-      return res.status(400).json({ error: 'Please fill in all bank account details (Account Number, IFSC, Holder Name)' });
+      return res.status(400).json({ error: 'Please fill in all bank account details (Account Number, IFSC Code, and Holder Name).' });
     }
   }
 
@@ -1416,7 +1432,7 @@ app.post('/api/wallet/withdraw', async (req, res) => {
   res.json({
     success: true,
     withdrawal,
-    message: `Withdrawal request of ₹${amount} submitted successfully! Your request is queued for manual processing and will be transferred to your account within 2 hours.`,
+    message: `Withdrawal request of ₹${amount} submitted successfully! Your request is queued and will be processed within 2 hours.`,
     updatedBalance: user.balance,
   });
 });
@@ -1428,18 +1444,18 @@ app.post('/api/wallet/change-upi', async (req, res) => {
     const cleanUpi = sanitizeInput(newUpiId);
 
     if (!userId || !cleanUpi || !cleanUpi.includes('@')) {
-      return res.status(400).json({ error: 'Please enter a valid UPI ID (e.g. name@upi)' });
+      return res.status(400).json({ error: 'Please enter a valid UPI ID (e.g. user@upi)' });
     }
 
-    const user = state.users.find(u => u.id === userId);
+    const user = await findAndSyncUser(userId);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(401).json({ error: 'Your login session has expired. Please log out and log in again.' });
     }
 
     const CHANGE_FEE = 500;
     if (user.balance < CHANGE_FEE) {
       return res.status(400).json({
-        error: `Insufficient wallet balance! Changing your locked UPI ID requires a ₹500 fee. Your current wallet balance is ₹${user.balance.toFixed(2)}.`
+        error: `Changing a locked UPI ID requires a ₹500 processing fee. Your current wallet balance is ₹${user.balance.toFixed(2)}. Please recharge your wallet and try again.`
       });
     }
 
