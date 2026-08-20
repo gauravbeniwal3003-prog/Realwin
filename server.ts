@@ -313,13 +313,24 @@ async function initSupabaseData() {
 
 initSupabaseData();
 
+// Helper to truncate rounds to 1000 per room
+export function truncateRounds() {
+  const roomTypes: string[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
+  let cleanedRounds: GameRound[] = [];
+  for (const r of roomTypes) {
+    const rRounds = state.rounds.filter(rd => rd.room === r || (!rd.room && r === 'WINGO_30S'));
+    rRounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
+    cleanedRounds.push(...rRounds.slice(0, 1000));
+  }
+  state.rounds = cleanedRounds;
+  state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
+}
+
 // Helper to save state
 function saveState() {
   try {
-    // Keep max 1000 rounds and max 1000 bets in memory & JSON file to keep full history intact
-    if (state.rounds.length > 1000) {
-      state.rounds = state.rounds.slice(0, 1000);
-    }
+    // Keep max 1000 rounds per room and max 1000 bets in memory & JSON file
+    truncateRounds();
     if (state.bets.length > 1000) {
       state.bets = state.bets.slice(0, 1000);
     }
@@ -337,12 +348,8 @@ export function addRoundAndSort(round: GameRound) {
   } else {
     state.rounds.push(round);
   }
-  // Sort descending by period number strictly
-  state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
   
-  if (state.rounds.length > 1000) {
-    state.rounds = state.rounds.slice(0, 1000);
-  }
+  truncateRounds();
 }
 
 // Helper to seed initial 100 history rounds if empty so user has immediate rich history
@@ -415,28 +422,20 @@ export async function checkAndProcessRounds() {
       const currentNum = parseInt(currentPeriod, 10);
       if (isNaN(currentNum)) continue;
 
-      // Find the most recent completed period in state.rounds for this room (strictly < currentNum)
-      const roomRounds = state.rounds.filter(rd => rd.room === r || (!rd.room && r === 'WINGO_30S'));
-      const completedNums = roomRounds
-        .map(rd => parseInt(rd.period, 10))
-        .filter(n => !isNaN(n) && n < currentNum);
+      // Ensure that the most recent 100 periods before currentNum are fully populated without any gaps!
+      // We check from currentNum - 1 down to currentNum - 100.
+      for (let offset = 1; offset <= 100; offset++) {
+        const targetNum = currentNum - offset;
+        const targetStr = String(targetNum);
 
-      let lastProcessedNum = completedNums.length > 0 ? Math.max(...completedNums) : currentNum - 50;
-
-      // Catch up all missing periods sequentially (up to 100 max catchup rounds per turn)
-      const catchupLimit = Math.min(currentNum - 1, lastProcessedNum + 100);
-      for (let pNum = lastProcessedNum + 1; pNum <= catchupLimit; pNum++) {
-        const pStr = String(pNum);
-        
-        // Find if this round is already processed or exists in memory
-        const existingRound = state.rounds.find(rd => rd.period === pStr && (rd.room === r || (!rd.room && r === 'WINGO_30S')));
+        // Find if this round exists for this room
+        const existingRound = state.rounds.find(rd => rd.period === targetStr && (rd.room === r || (!rd.room && r === 'WINGO_30S')));
         
         // Also check if there are pending bets for this period and room
-        const hasPendingBets = state.bets.some(b => b.period === pStr && (b.room === r || !b.room) && b.status === 'PENDING');
-        
-        // If the round is missing OR if the round exists but there are pending bets for it
+        const hasPendingBets = state.bets.some(b => b.period === targetStr && (b.room === r || !b.room) && b.status === 'PENDING');
+
         if (!existingRound || hasPendingBets) {
-          await processRoundResult(pStr, r);
+          await processRoundResult(targetStr, r);
         }
       }
     }
@@ -2193,11 +2192,7 @@ app.post('/api/admin/periods', async (req, res) => {
   }
 
   // Ensure strict descending numeric period sequence
-  state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
-
-  if (state.rounds.length > 1000) {
-    state.rounds = state.rounds.slice(0, 1000);
-  }
+  truncateRounds();
 
   saveState();
   await saveGameRoundToSupabase(roundToUpsert);
