@@ -290,7 +290,18 @@ async function initSupabaseData() {
         }
       });
       state.rounds = Array.from(uniqueMap.values());
+      
+      // Ensure all supported rooms have full 300 history rounds populated
+      for (const rm of rooms) {
+        ensureHistoryRounds(rm, 300);
+      }
+      truncateRounds();
       state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
+    } else {
+      for (const rm of ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'] as RoomType[]) {
+        ensureHistoryRounds(rm, 300);
+      }
+      truncateRounds();
     }
     if (dbBets && dbBets.length > 0) {
       // Keep max 100 bets per individual user
@@ -408,18 +419,20 @@ function getActivePeriod(room: string = 'WINGO_30S'): { period: string; secondsR
   return { period, secondsRemaining, isLocked, duration };
 }
 
-// Seed initial history if empty based strictly on current real activePeriod
-const supportedRooms: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
-for (const rm of supportedRooms) {
-  const existingForRoom = state.rounds.filter(r => r.room === rm || (!r.room && rm === 'WINGO_30S'));
-  if (existingForRoom.length < 20) {
-    const { period: currentPeriod } = getActivePeriod(rm);
-    const activeNum = parseInt(currentPeriod, 10);
-    const now = Date.now();
-    for (let i = 1; i <= 50; i++) {
-      const pNum = activeNum - i;
-      const periodStr = String(pNum);
-      const num = getDeterministicRoundResult(periodStr, rm);
+// Helper to synchronously guarantee that the most recent 300 past periods exist for a given room
+export function ensureHistoryRounds(room: RoomType, count = 300) {
+  const { period: currentPeriod, duration } = getActivePeriod(room);
+  const currentNum = parseInt(currentPeriod, 10);
+  if (isNaN(currentNum)) return;
+  const now = Date.now();
+
+  for (let offset = 1; offset <= count; offset++) {
+    const targetNum = currentNum - offset;
+    const targetStr = String(targetNum);
+    const existingIdx = state.rounds.findIndex(rd => rd.period === targetStr && (rd.room === room || (!rd.room && room === 'WINGO_30S')));
+    
+    if (existingIdx < 0) {
+      const num = getDeterministicRoundResult(targetStr, room);
       let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
       if (num === 0) colors = ['RED', 'VIOLET'];
       else if (num === 5) colors = ['GREEN', 'VIOLET'];
@@ -427,15 +440,15 @@ for (const rm of supportedRooms) {
       else colors = ['RED'];
 
       const bigSmall = num >= 5 ? 'BIG' : 'SMALL';
-      const seedHash = crypto.createHash('sha256').update(`${periodStr}-SECRET-${num}`).digest('hex');
+      const seedHash = crypto.createHash('sha256').update(`${targetStr}-SECRET-${num}`).digest('hex');
 
-      addRoundAndSort({
-        period: periodStr,
-        room: rm,
+      state.rounds.push({
+        period: targetStr,
+        room,
         number: num,
         colors,
         bigSmall,
-        timestamp: now - i * getDurationForRoom(rm) * 1000,
+        timestamp: now - offset * duration * 1000,
         seedHash,
         totalBetsCount: Math.floor(Math.random() * 25) + 5,
         totalBetsAmount: (Math.floor(Math.random() * 30) + 10) * 100,
@@ -443,6 +456,13 @@ for (const rm of supportedRooms) {
     }
   }
 }
+
+// Seed initial history across all supported rooms immediately
+const supportedRooms: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
+for (const rm of supportedRooms) {
+  ensureHistoryRounds(rm, 300);
+}
+truncateRounds();
 saveState();
 
 let isProcessingRounds = false;
@@ -453,31 +473,30 @@ export async function checkAndProcessRounds() {
   isProcessingRounds = true;
   try {
     const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
+    
+    // 1. Ensure all rooms have all 300 unbroken past periods populated immediately in memory
+    for (const r of rooms) {
+      ensureHistoryRounds(r, 300);
+    }
+    truncateRounds();
+
+    // 2. Resolve any pending bets for past completed periods
+    await resolveOrphanBets();
+
+    // 3. Process immediate preceding round for each room if active bets are placed
     for (const r of rooms) {
       const { period: currentPeriod } = getActivePeriod(r);
       const currentNum = parseInt(currentPeriod, 10);
       if (isNaN(currentNum)) continue;
-
-      // Ensure that the most recent 300 periods before currentNum are fully populated without any gaps!
-      // We check from currentNum - 1 down to currentNum - 300.
-      for (let offset = 1; offset <= 300; offset++) {
-        const targetNum = currentNum - offset;
-        const targetStr = String(targetNum);
-
-        // Find if this round exists for this room
-        const existingRound = state.rounds.find(rd => rd.period === targetStr && (rd.room === r || (!rd.room && r === 'WINGO_30S')));
-        
-        // Also check if there are pending bets for this period and room
-        const hasPendingBets = state.bets.some(b => b.period === targetStr && (b.room === r || !b.room) && b.status === 'PENDING');
-
-        if (!existingRound || hasPendingBets) {
-          await processRoundResult(targetStr, r);
-        }
+      const prevNumStr = String(currentNum - 1);
+      
+      const roundBets = state.bets.filter(b => b.period === prevNumStr && (b.room === r || (!b.room && r === 'WINGO_30S')) && b.status === 'PENDING');
+      if (roundBets.length > 0) {
+        await processRoundResult(prevNumStr, r);
       }
     }
-
-    // Also resolve any orphan pending bets for past periods
-    await resolveOrphanBets();
+  } catch (err) {
+    console.error('Error in checkAndProcessRounds:', err);
   } finally {
     isProcessingRounds = false;
   }

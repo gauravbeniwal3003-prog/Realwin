@@ -96,33 +96,35 @@ export default function App() {
   // Win/Loss Result Modal State
   const [resultModalData, setResultModalData] = useState<GameResultModalData | null>(null);
   const acknowledgedPeriodsRef = useRef<Set<string>>(new Set());
-  const initialBetsLoadedRef = useRef<boolean>(false);
+  const sessionActiveBetsRef = useRef<Set<string>>(new Set());
 
-  // Detect newly resolved bets to open Win/Loss Result Pop-Up Modal
+  // Detect newly resolved bets to open Win/Loss Result Pop-Up Modal ONLY for bets placed in the active session
   useEffect(() => {
     if (!user || myBets.length === 0) return;
 
-    // On initial bets load, mark all currently resolved bets as acknowledged so past history does not pop up
-    if (!initialBetsLoadedRef.current) {
-      myBets.forEach(b => {
-        if (b.status !== 'PENDING') {
-          acknowledgedPeriodsRef.current.add(b.period);
-        }
-      });
-      initialBetsLoadedRef.current = true;
-      return;
-    }
+    // Filter to find newly resolved bets that were placed in this session and match the active room
+    const unacknowledgedResolvedBets = myBets.filter(b => {
+      if (b.status === 'PENDING') return false;
+      const bRoom: RoomType = (b.room as RoomType) || 'WINGO_30S';
+      const key = `${bRoom}:${b.period}`;
+      
+      // Must be a bet placed by the user during this browsing session
+      if (!sessionActiveBetsRef.current.has(key)) return false;
+      // Must not already be acknowledged
+      if (acknowledgedPeriodsRef.current.has(key)) return false;
+      // Must match the currently active room
+      if (bRoom !== activeRoom) return false;
 
-    // Find any resolved bet (WON or LOST) whose period has not been acknowledged yet
-    const unacknowledgedResolvedBets = myBets.filter(
-      b => b.status !== 'PENDING' && !acknowledgedPeriodsRef.current.has(b.period)
-    );
+      return true;
+    });
 
     if (unacknowledgedResolvedBets.length === 0) return;
 
-    // Pick the most recent period among unacknowledged bets
-    const targetPeriod = unacknowledgedResolvedBets[0].period;
-    const periodBets = myBets.filter(b => b.period === targetPeriod && b.status !== 'PENDING');
+    // Pick the target period from the unacknowledged bets
+    const targetBet = unacknowledgedResolvedBets[0];
+    const targetPeriod = targetBet.period;
+    const targetRoom = (targetBet.room as RoomType) || 'WINGO_30S';
+    const periodBets = myBets.filter(b => b.period === targetPeriod && (b.room === targetRoom || (!b.room && targetRoom === 'WINGO_30S')) && b.status !== 'PENDING');
 
     if (periodBets.length === 0) return;
 
@@ -130,7 +132,7 @@ export default function App() {
     const totalPayout = periodBets.reduce((sum, b) => sum + b.payout, 0);
     const netProfit = totalPayout - totalInvested;
     const isWin = totalPayout > 0;
-    const matchedRound = history.find(r => r.period === targetPeriod);
+    const matchedRound = history.find(r => r.period === targetPeriod && (r.room === targetRoom || (!r.room && targetRoom === 'WINGO_30S')));
 
     // Fallback round builder so popup shows immediately even before history pagination loads
     const winningNum = periodBets[0].resultNumber !== undefined ? periodBets[0].resultNumber : matchedRound?.number;
@@ -144,7 +146,7 @@ export default function App() {
     const bigSmall = matchedRound?.bigSmall || (winningNum !== undefined && winningNum >= 5 ? 'BIG' : 'SMALL');
     const resolvedRound: GameRound | undefined = matchedRound || (winningNum !== undefined ? {
       period: targetPeriod,
-      room: periodBets[0].room,
+      room: targetRoom,
       number: winningNum,
       colors,
       bigSmall,
@@ -154,7 +156,7 @@ export default function App() {
 
     setResultModalData({
       period: targetPeriod,
-      room: periodBets[0].room,
+      room: targetRoom,
       round: resolvedRound,
       bets: periodBets,
       totalInvested,
@@ -162,11 +164,13 @@ export default function App() {
       netProfit,
       isWin,
     });
-  }, [myBets, history, user]);
+  }, [myBets, history, user, activeRoom]);
 
   const handleCloseResultModal = () => {
     if (resultModalData) {
-      acknowledgedPeriodsRef.current.add(resultModalData.period);
+      const key = `${resultModalData.room || 'WINGO_30S'}:${resultModalData.period}`;
+      acknowledgedPeriodsRef.current.add(key);
+      sessionActiveBetsRef.current.delete(key);
     }
     setResultModalData(null);
   };
@@ -349,6 +353,12 @@ export default function App() {
       selection,
       amount,
     });
+
+    if (res?.bet?.period) {
+      sessionActiveBetsRef.current.add(`${activeRoom}:${res.bet.period}`);
+    } else if (gameState?.period) {
+      sessionActiveBetsRef.current.add(`${activeRoom}:${gameState.period}`);
+    }
 
     setUser(prev => (prev ? { ...prev, balance: res.updatedBalance } : null));
     const updatedBets = await fetchMyBets(user.id);
