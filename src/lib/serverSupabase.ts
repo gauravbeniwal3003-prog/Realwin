@@ -248,27 +248,55 @@ export async function saveGameRoundToSupabase(round: GameRound): Promise<void> {
   }
 }
 
-// Prune old rounds in Supabase so max 1000 period results are retained
+// Prune old rounds in Supabase so max 300 period results are retained per room
 export async function pruneOldGameRoundsFromSupabase(): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
-    // Get the 1000th newest timestamp
-    const { data, error } = await supabase
-      .from('game_rounds')
-      .select('timestamp')
-      .order('timestamp', { ascending: false })
-      .range(1000, 1000);
-
-    if (!error && data && data.length > 0) {
-      const cutoffTimestamp = data[0].timestamp;
-      // Delete rounds older than cutoffTimestamp
-      await supabase
+    const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
+    for (const r of rooms) {
+      // Get the 300th newest timestamp for this room
+      const { data, error } = await supabase
         .from('game_rounds')
-        .delete()
-        .lt('timestamp', cutoffTimestamp);
+        .select('timestamp')
+        .eq('room', r)
+        .order('timestamp', { ascending: false })
+        .range(300, 300);
+
+      if (!error && data && data.length > 0) {
+        const cutoffTimestamp = data[0].timestamp;
+        await supabase
+          .from('game_rounds')
+          .delete()
+          .eq('room', r)
+          .lt('timestamp', cutoffTimestamp);
+      }
     }
   } catch (err) {
     console.error('Error pruning old rounds from Supabase:', err);
+  }
+}
+
+// Prune old bets in Supabase so max 100 bets are retained per individual user
+export async function pruneUserOldBetsFromSupabase(userId: string): Promise<void> {
+  if (!isSupabaseConfigured || !userId) return;
+  try {
+    const { data, error } = await supabase
+      .from('bets')
+      .select('created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(100, 100);
+
+    if (!error && data && data.length > 0) {
+      const cutoffCreatedAt = data[0].created_at;
+      await supabase
+        .from('bets')
+        .delete()
+        .eq('user_id', userId)
+        .lt('created_at', cutoffCreatedAt);
+    }
+  } catch (err) {
+    console.error('Error pruning old bets from Supabase:', err);
   }
 }
 
@@ -345,6 +373,9 @@ export async function saveBetToSupabase(bet: Bet): Promise<void> {
       };
       await supabase.from('bets').upsert(fallbackPayload, { onConflict: 'id' });
     }
+
+    // Automatically prune old bets for this user so max 100 historical records are stored
+    await pruneUserOldBetsFromSupabase(bet.userId);
   } catch (err) {
     console.error('Error saving bet to Supabase:', err);
   }

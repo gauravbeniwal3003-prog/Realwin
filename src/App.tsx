@@ -171,8 +171,21 @@ export default function App() {
     setResultModalData(null);
   };
 
-  // Initial user loading
+  // Initial user loading & local storage cleanup
   useEffect(() => {
+    // Purge any stale client-side cached data in localStorage
+    try {
+      const allowedKeys = new Set(['realwin_user_phone', 'rw_device_banned']);
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && !allowedKeys.has(key)) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch (e) {
+      console.warn('LocalStorage cleanup warning:', e);
+    }
+
     async function initUser() {
       const savedPhone = localStorage.getItem('realwin_user_phone');
       if (!savedPhone) {
@@ -304,7 +317,8 @@ export default function App() {
       }
     }
     loadData();
-  }, [activeRoom, user?.id]);
+    syncServer();
+  }, [activeRoom, user?.id, syncServer]);
 
   const handleRefreshUser = async () => {
     if (!user) return;

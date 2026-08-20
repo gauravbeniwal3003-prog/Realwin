@@ -271,17 +271,40 @@ async function initSupabaseData() {
     if (dbUsers && dbUsers.length > 0) state.users = dbUsers;
     if (dbRounds && dbRounds.length > 0) {
       const uniqueMap = new Map<string, GameRound>();
+      const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
+      const activePeriodsMap = new Map<string, number>();
+      rooms.forEach(r => {
+        activePeriodsMap.set(r, parseInt(getActivePeriod(r).period, 10));
+      });
+
       dbRounds.forEach(r => {
-        const roomKey = r.room || 'WINGO_30S';
-        const key = `${r.period}:${roomKey}`;
-        if (!uniqueMap.has(key)) {
-          uniqueMap.set(key, r);
+        const roomKey = (r.room as RoomType) || 'WINGO_30S';
+        const rNum = parseInt(r.period, 10);
+        const curActiveNum = activePeriodsMap.get(roomKey) || 100000;
+        // Only keep rounds that are within the current cycle window (within last 350 periods of active period)
+        if (!isNaN(rNum) && rNum <= curActiveNum && rNum >= curActiveNum - 350) {
+          const key = `${r.period}:${roomKey}`;
+          if (!uniqueMap.has(key)) {
+            uniqueMap.set(key, r);
+          }
         }
       });
       state.rounds = Array.from(uniqueMap.values());
       state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
     }
-    if (dbBets && dbBets.length > 0) state.bets = dbBets;
+    if (dbBets && dbBets.length > 0) {
+      // Keep max 100 bets per individual user
+      const userBetsMap = new Map<string, Bet[]>();
+      for (const b of dbBets) {
+        const uList = userBetsMap.get(b.userId) || [];
+        if (uList.length < 100) {
+          uList.push(b);
+          userBetsMap.set(b.userId, uList);
+        }
+      }
+      state.bets = Array.from(userBetsMap.values()).flat();
+      state.bets.sort((a, b) => b.createdAt - a.createdAt);
+    }
     if (dbDeps && dbDeps.length > 0) state.deposits = dbDeps;
     if (dbWths && dbWths.length > 0) state.withdrawals = dbWths;
     if (dbSettings) {
@@ -294,7 +317,7 @@ async function initSupabaseData() {
     // Save updated settings to Supabase to overwrite any legacy 500 limit
     await saveSystemSettingsToSupabase(state.settings);
 
-    console.log(`⚡ [SUPABASE SYNC OK] Active state synced with Supabase Database: ${state.users.length} Users, ${state.rounds.length} Periods (Max 1000 stored).`);
+    console.log(`⚡ [SUPABASE SYNC OK] Active state synced with Supabase Database: ${state.users.length} Users, ${state.rounds.length} Periods (Max 300 stored).`);
 
     // Bootstrap initial data to Supabase if DB was recently created or empty
     if (dbUsers.length === 0 && state.users.length > 0) {
@@ -313,14 +336,14 @@ async function initSupabaseData() {
 
 initSupabaseData();
 
-// Helper to truncate rounds to 1000 per room
+// Helper to truncate rounds to maximum 300 records per room
 export function truncateRounds() {
-  const roomTypes: string[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
+  const roomTypes: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
   let cleanedRounds: GameRound[] = [];
   for (const r of roomTypes) {
     const rRounds = state.rounds.filter(rd => rd.room === r || (!rd.room && r === 'WINGO_30S'));
     rRounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
-    cleanedRounds.push(...rRounds.slice(0, 1000));
+    cleanedRounds.push(...rRounds.slice(0, 300));
   }
   state.rounds = cleanedRounds;
   state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
@@ -329,11 +352,21 @@ export function truncateRounds() {
 // Helper to save state
 function saveState() {
   try {
-    // Keep max 1000 rounds per room and max 1000 bets in memory & JSON file
+    // Keep max 300 rounds per room and max 100 bets per user in memory & JSON file
     truncateRounds();
-    if (state.bets.length > 1000) {
-      state.bets = state.bets.slice(0, 1000);
+    
+    // Keep max 100 bets per individual user
+    const userBetsMap = new Map<string, Bet[]>();
+    for (const b of state.bets) {
+      const uList = userBetsMap.get(b.userId) || [];
+      if (uList.length < 100) {
+        uList.push(b);
+        userBetsMap.set(b.userId, uList);
+      }
     }
+    state.bets = Array.from(userBetsMap.values()).flat();
+    state.bets.sort((a, b) => b.createdAt - a.createdAt);
+
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
   } catch (err) {
     console.error('Error saving state:', err);
@@ -350,40 +383,6 @@ export function addRoundAndSort(round: GameRound) {
   }
   
   truncateRounds();
-}
-
-// Helper to seed initial 100 history rounds if empty so user has immediate rich history
-if (state.rounds.length < 50) {
-  const now = Date.now();
-  const roomTypes: RoomType[] = ['PARITY', 'SAPRE', 'BCONE', 'EMERD'];
-  const baseActive = 100000 + (Math.floor(now / 1000 / 30) % 800000);
-  for (let i = 100; i >= 1; i--) {
-    const periodTimestamp = now - i * 60000;
-    const period = String(baseActive - i);
-
-    const num = Math.floor(Math.random() * 10);
-    let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
-    if (num === 0) colors = ['RED', 'VIOLET'];
-    else if (num === 5) colors = ['GREEN', 'VIOLET'];
-    else if ([1, 3, 7, 9].includes(num)) colors = ['GREEN'];
-    else colors = ['RED'];
-
-    const bigSmall = num >= 5 ? 'BIG' : 'SMALL';
-    const seedHash = crypto.createHash('sha256').update(`${period}-SECRET-${num}`).digest('hex');
-
-    state.rounds.unshift({
-      period,
-      room: roomTypes[i % 4],
-      number: num,
-      colors,
-      bigSmall,
-      timestamp: periodTimestamp,
-      seedHash,
-      totalBetsCount: Math.floor(Math.random() * 25) + 5,
-      totalBetsAmount: (Math.floor(Math.random() * 30) + 10) * 100,
-    });
-  }
-  saveState();
 }
 
 // --- GAME TIMER & ROUND LOOPER ---
@@ -408,6 +407,43 @@ function getActivePeriod(room: string = 'WINGO_30S'): { period: string; secondsR
 
   return { period, secondsRemaining, isLocked, duration };
 }
+
+// Seed initial history if empty based strictly on current real activePeriod
+const supportedRooms: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
+for (const rm of supportedRooms) {
+  const existingForRoom = state.rounds.filter(r => r.room === rm || (!r.room && rm === 'WINGO_30S'));
+  if (existingForRoom.length < 20) {
+    const { period: currentPeriod } = getActivePeriod(rm);
+    const activeNum = parseInt(currentPeriod, 10);
+    const now = Date.now();
+    for (let i = 1; i <= 50; i++) {
+      const pNum = activeNum - i;
+      const periodStr = String(pNum);
+      const num = getDeterministicRoundResult(periodStr, rm);
+      let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
+      if (num === 0) colors = ['RED', 'VIOLET'];
+      else if (num === 5) colors = ['GREEN', 'VIOLET'];
+      else if ([1, 3, 7, 9].includes(num)) colors = ['GREEN'];
+      else colors = ['RED'];
+
+      const bigSmall = num >= 5 ? 'BIG' : 'SMALL';
+      const seedHash = crypto.createHash('sha256').update(`${periodStr}-SECRET-${num}`).digest('hex');
+
+      addRoundAndSort({
+        period: periodStr,
+        room: rm,
+        number: num,
+        colors,
+        bigSmall,
+        timestamp: now - i * getDurationForRoom(rm) * 1000,
+        seedHash,
+        totalBetsCount: Math.floor(Math.random() * 25) + 5,
+        totalBetsAmount: (Math.floor(Math.random() * 30) + 10) * 100,
+      });
+    }
+  }
+}
+saveState();
 
 let isProcessingRounds = false;
 
@@ -721,6 +757,7 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     }
   });
 
+  let targetRound: GameRound;
   if (existingRound) {
     existingRound.number = winningNum;
     existingRound.colors = colors;
@@ -730,6 +767,7 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     existingRound.timestamp = Date.now();
     // Re-sort rounds array to guarantee sorting
     state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
+    targetRound = existingRound;
   } else {
     const newRound: GameRound = {
       period,
@@ -744,13 +782,13 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     };
 
     addRoundAndSort(newRound);
+    targetRound = newRound;
   }
 
   saveState();
   
   // Sync to Supabase Database (Must await to guarantee persistence on serverless/cloud environments)
   try {
-    const targetRound = existingRound || state.rounds[0];
     await saveGameRoundToSupabase(targetRound);
     for (const b of roundBets) {
       await saveBetToSupabase(b);

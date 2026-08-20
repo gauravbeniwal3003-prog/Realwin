@@ -219,8 +219,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   // Recent 5 numbers for the ticket card
   const recentBalls = recentRounds.slice(0, 5).map(r => r.number);
-  // Default fallback numbers if history empty
-  const displayBalls = recentBalls.length >= 5 ? recentBalls : [2, 9, 7, 7, 9];
+  // Pad with fallback numbers if fewer than 5 rounds exist
+  const displayBalls = [...recentBalls, 2, 9, 7, 7, 9].slice(0, 5);
 
   return (
     <div className="space-y-3 max-w-md mx-auto">
