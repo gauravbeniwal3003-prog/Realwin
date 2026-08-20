@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { HelpCircle, Sparkles, CheckCircle2, ShieldCheck, ArrowLeft, Trophy, DollarSign } from 'lucide-react';
 import { User } from '../types';
+import { getAppPath } from '../config/appConfig';
 
 interface RulesPageProps {
   user: User | null;
@@ -117,7 +118,7 @@ export const RulesPage: React.FC<RulesPageProps> = ({ user }) => {
         </div>
 
         <button
-          onClick={() => navigate('/game')}
+          onClick={() => navigate(getAppPath('/game'))}
           className="w-full py-3.5 bg-gradient-to-r from-[#ff5652] to-[#ff3b38] text-white font-black rounded-2xl text-xs shadow-md flex items-center justify-center gap-2 active:scale-95 transition"
         >
           <ArrowLeft className="w-4 h-4" />

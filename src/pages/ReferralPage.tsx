@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Share2, Copy, Check, Users, Gift, Sparkles, ArrowRight, Wallet, Percent, ShieldCheck } from 'lucide-react';
 import { User } from '../types';
+import { buildAppUrl } from '../config/appConfig';
 
 interface ReferralPageProps {
   user: User | null;
@@ -17,7 +18,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({ user }) => {
   }, []);
 
   const inviteCode = user ? (user.phone ? user.phone.slice(-6) : '849201') : '849201';
-  const inviteUrl = `${window.location.origin}/login?ref=${inviteCode}`;
+  const inviteUrl = buildAppUrl(`/register?ref=${inviteCode}`);
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(inviteUrl);

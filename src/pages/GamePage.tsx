@@ -4,6 +4,7 @@ import { Header } from '../components/Header';
 import { GameCanvas } from '../components/GameCanvas';
 import { Gamepad2, Wallet, User as UserIcon } from 'lucide-react';
 import { User, ServerGameState, GameRound, Bet, BetSelection, RoomType } from '../types';
+import { getAppPath } from '../config/appConfig';
 
 interface GamePageProps {
   user: User | null;
@@ -59,15 +60,15 @@ export const GamePage: React.FC<GamePageProps> = ({
           gameState={gameState}
           user={user}
           onPlaceBet={onPlaceBet}
-          onOpenWallet={() => navigate('/wallet')}
-          onOpenRules={() => navigate('/rules')}
-          onOpenSupport={() => navigate('/support')}
+          onOpenWallet={() => navigate(getAppPath('/wallet'))}
+          onOpenRules={() => navigate(getAppPath('/rules'))}
+          onOpenSupport={() => navigate(getAppPath('/support'))}
           lastRoundResult={history[0]}
           activeRoom={activeRoom}
           onChangeRoom={handleRoomChange}
           recentRounds={history}
           myBets={myBets}
-          onVerifySeed={() => navigate('/fairplay')}
+          onVerifySeed={() => navigate(getAppPath('/fairplay'))}
         />
       </main>
     </div>

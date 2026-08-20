@@ -1,25 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LogIn, Sparkles, ShieldCheck, Zap, Award, ArrowRight, Smartphone, Lock, Gift, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
+import { LogIn, Sparkles, ShieldCheck, Zap, Award, ArrowRight, Smartphone, Lock, Gift, Eye, EyeOff, CheckCircle2, AlertCircle, Check } from 'lucide-react';
 import { User } from '../types';
 import { loginUser, registerUser } from '../lib/api';
 import { RealWinLogo } from '../components/RealWinLogo';
+import { getAppPath } from '../config/appConfig';
 
 interface AuthPageProps {
   onSuccess: (user: User) => void;
+  initialTab?: 'LOGIN' | 'REGISTER';
 }
 
-export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
+export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess, initialTab = 'LOGIN' }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
+  const [activeTab, setActiveTab] = useState<'LOGIN' | 'REGISTER'>(initialTab);
 
   // Form Fields
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [isReferralFixed, setIsReferralFixed] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -28,8 +31,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
   useEffect(() => {
     window.scrollTo(0, 0);
     const ref = searchParams.get('ref');
-    if (ref) {
-      setReferralCode(ref);
+    if (ref && ref.trim()) {
+      setReferralCode(ref.trim().toUpperCase());
+      setIsReferralFixed(true);
       setActiveTab('REGISTER');
     }
   }, [searchParams]);
@@ -64,12 +68,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
         user = await registerUser({
           phone,
           password,
-          referralCode,
+          referralCode: referralCode.trim(),
           name: `Player_${phone.slice(-4)}`,
         });
       }
       onSuccess(user);
-      navigate('/game');
+      navigate(getAppPath('/game'));
     } catch (err: any) {
       setErrorMsg(err.message || 'Authentication failed');
     } finally {
@@ -205,22 +209,47 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onSuccess }) => {
                 </div>
               </div>
 
-              {/* Optional Referral Code */}
+              {/* Referral Code */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-700 flex items-center justify-between">
                   <span>Referral Code</span>
-                  <span className="text-[10px] text-gray-400 font-normal">Optional</span>
+                  {isReferralFixed ? (
+                    <span className="text-[10px] text-emerald-600 font-extrabold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      <span>Applied & Locked</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-gray-400 font-normal">Optional</span>
+                  )}
                 </label>
                 <div className="relative">
                   <input
                     type="text"
                     value={referralCode}
-                    onChange={e => setReferralCode(e.target.value)}
+                    readOnly={isReferralFixed}
+                    onChange={e => {
+                      if (!isReferralFixed) {
+                        setReferralCode(e.target.value.toUpperCase());
+                      }
+                    }}
                     placeholder="Enter referral code (Optional)"
-                    className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 text-sm font-mono font-bold text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#ff5353] focus:bg-white transition uppercase"
+                    className={`w-full border rounded-2xl px-4 py-3 text-sm font-mono font-bold uppercase transition ${
+                      isReferralFixed
+                        ? 'bg-emerald-50/60 border-emerald-300 text-emerald-900 cursor-not-allowed select-none'
+                        : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#ff5353] focus:bg-white'
+                    }`}
                   />
-                  <Gift className="w-4 h-4 text-amber-500 absolute right-3.5 top-3.5" />
+                  {isReferralFixed ? (
+                    <Lock className="w-4 h-4 text-emerald-600 absolute right-3.5 top-3.5" />
+                  ) : (
+                    <Gift className="w-4 h-4 text-amber-500 absolute right-3.5 top-3.5" />
+                  )}
                 </div>
+                {isReferralFixed && (
+                  <p className="text-[10px] text-emerald-600 font-medium pl-1">
+                    ✓ Invitation referral code #{referralCode} is attached to your new account.
+                  </p>
+                )}
               </div>
             </>
           )}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { RealWinLogo } from '../components/RealWinLogo';
+import { getAppPath } from '../config/appConfig';
 import {
   Lock,
   RefreshCw,
@@ -539,7 +540,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => navigate('/game')}
+                  onClick={() => navigate(getAppPath('/game'))}
                   className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-2xl text-xs transition"
                 >
                   Exit
@@ -595,7 +596,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ user, onRefreshGlobalState
               <RefreshCw className="w-4 h-4" />
             </button>
             <button
-              onClick={() => navigate('/game')}
+              onClick={() => navigate(getAppPath('/game'))}
               className="px-4 py-2.5 rounded-xl sm:rounded-2xl bg-[#ff5353] hover:bg-[#e04343] text-white font-bold text-xs flex-1 sm:flex-initial transition active:scale-95 shadow-xs text-center"
             >
               Back to Game

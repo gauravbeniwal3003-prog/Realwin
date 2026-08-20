@@ -2397,7 +2397,7 @@ app.post('/api/admin/override-number', async (req, res) => {
     createdAt: Date.now(),
   };
 
-  // Clean up any legacy single-period key to prevent duplicates
+  // Also clean up any legacy single-period key
   delete (state as any).scheduledOverrides[targetPeriod];
 
   (state as any).roomOverrides[targetRoom] = {
@@ -2405,38 +2405,15 @@ app.post('/api/admin/override-number', async (req, res) => {
     forPeriod: targetPeriod,
   };
 
-  // Pre-create the future/current round and save it to Supabase immediately so it's 100% persisted across all serverless nodes
-  let colors: ('GREEN' | 'RED' | 'VIOLET')[] = [];
-  if (num === 0) colors = ['RED', 'VIOLET'];
-  else if (num === 5) colors = ['GREEN', 'VIOLET'];
-  else if ([1, 3, 7, 9].includes(num)) colors = ['GREEN'];
-  else colors = ['RED'];
-  const bigSmall = num >= 5 ? 'BIG' : 'SMALL';
-
-  const preCreatedRound: GameRound = {
-    period: targetPeriod,
-    room: targetRoom,
-    number: num,
-    colors,
-    bigSmall,
-    timestamp: Date.now(), // Will be updated to exact completion timestamp when processed
-    seedHash: crypto.createHash('sha256').update(`${targetPeriod}-${targetRoom}-FAIRPLAY-${num}`).digest('hex'),
-    totalBetsCount: 0,
-    totalBetsAmount: 0,
-  };
-
-  addRoundAndSort(preCreatedRound);
-
   saveState();
-  await saveGameRoundToSupabase(preCreatedRound);
 
-  console.log(`[ADMIN OVERRIDE CONFIGURED] Period #${targetPeriod} (${targetRoom}) set to Winner: ${num} and pre-saved to database`);
+  console.log(`[ADMIN OVERRIDE CONFIGURED] Period #${targetPeriod} (${targetRoom}) scheduled Winner: ${num}`);
 
   return res.json({
     success: true,
     targetPeriod,
     manualOverrideNumber: num,
-    message: `Result for Period #${targetPeriod} (${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom}) is strictly locked and saved to database as Number ${num}!`,
+    message: `Result for Period #${targetPeriod} (${targetRoom === 'WINGO_30S' ? '30s Window' : targetRoom === 'WINGO_1M' ? '1 Min Window' : targetRoom}) is scheduled as Number ${num}!`,
   });
 });
 

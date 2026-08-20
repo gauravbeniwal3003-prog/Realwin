@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { APP_SECRET_SLUG, getAppPath } from './config/appConfig';
+import { WebsiteNotFoundPage } from './pages/WebsiteNotFoundPage';
 import { LandingPage } from './pages/LandingPage';
 import { GamePage } from './pages/GamePage';
 import { WalletPage } from './pages/WalletPage';
@@ -59,7 +61,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, user, isCheck
     );
   }
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={getAppPath('/login')} replace />;
   }
   return <>{children}</>;
 };
@@ -401,13 +403,30 @@ export default function App() {
     );
   }
 
+  const cleanSlug = APP_SECRET_SLUG.replace(/^\/+|\/+$/g, '').trim();
+  const slugPrefix = cleanSlug ? `/${cleanSlug}` : '';
+
   return (
     <BrowserRouter>
       <ScrollToTop />
       <Routes>
+        {/* If secret slug is active, accessing root '/' renders 404 page */}
+        {cleanSlug ? (
+          <Route path="/" element={<WebsiteNotFoundPage />} />
+        ) : (
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
+                <LandingPage user={user} />
+              </ProtectedRoute>
+            }
+          />
+        )}
+
         {/* Main Platform Lobby / Landing Page */}
         <Route
-          path="/"
+          path={`${slugPrefix}/`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <LandingPage user={user} />
@@ -415,7 +434,7 @@ export default function App() {
           }
         />
         <Route
-          path="/home"
+          path={`${slugPrefix}/home`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <LandingPage user={user} />
@@ -425,7 +444,7 @@ export default function App() {
 
         {/* Auth Pages */}
         <Route
-          path="/login"
+          path={`${slugPrefix}/login`}
           element={
             isCheckingAuth ? (
               <div className="min-h-screen bg-[#f7f8ff] flex flex-col items-center justify-center p-4 font-sans select-none">
@@ -436,7 +455,7 @@ export default function App() {
                 </div>
               </div>
             ) : user ? (
-              <Navigate to="/game" replace />
+              <Navigate to={getAppPath('/game')} replace />
             ) : (
               <AuthPage
                 onSuccess={u => {
@@ -447,12 +466,12 @@ export default function App() {
             )
           }
         />
-        <Route path="/register" element={<Navigate to="/login" replace />} />
-        <Route path="/auth" element={<Navigate to="/login" replace />} />
+        <Route path={`${slugPrefix}/register`} element={<Navigate to={getAppPath('/login')} replace />} />
+        <Route path={`${slugPrefix}/auth`} element={<Navigate to={getAppPath('/login')} replace />} />
 
         {/* Main WinGo Game Page & Specific Room Routes */}
         <Route
-          path="/game"
+          path={`${slugPrefix}/game`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <GamePage
@@ -472,12 +491,12 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/game/30s" element={<Navigate to="/game?room=WINGO_30S" replace />} />
-        <Route path="/game/1m" element={<Navigate to="/game?room=WINGO_1M" replace />} />
+        <Route path={`${slugPrefix}/game/30s`} element={<Navigate to={getAppPath('/game?room=WINGO_30S')} replace />} />
+        <Route path={`${slugPrefix}/game/1m`} element={<Navigate to={getAppPath('/game?room=WINGO_1M')} replace />} />
 
         {/* Wallet Page & Specific Sub-Routes */}
         <Route
-          path="/wallet"
+          path={`${slugPrefix}/wallet`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <WalletPage
@@ -493,16 +512,16 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/deposit" element={<Navigate to="/wallet?tab=DEPOSIT" replace />} />
-        <Route path="/wallet/deposit" element={<Navigate to="/wallet?tab=DEPOSIT" replace />} />
-        <Route path="/withdraw" element={<Navigate to="/wallet?tab=WITHDRAW" replace />} />
-        <Route path="/wallet/withdraw" element={<Navigate to="/wallet?tab=WITHDRAW" replace />} />
-        <Route path="/history" element={<Navigate to="/wallet?tab=HISTORY" replace />} />
-        <Route path="/wallet/history" element={<Navigate to="/wallet?tab=HISTORY" replace />} />
+        <Route path={`${slugPrefix}/deposit`} element={<Navigate to={getAppPath('/wallet?tab=DEPOSIT')} replace />} />
+        <Route path={`${slugPrefix}/wallet/deposit`} element={<Navigate to={getAppPath('/wallet?tab=DEPOSIT')} replace />} />
+        <Route path={`${slugPrefix}/withdraw`} element={<Navigate to={getAppPath('/wallet?tab=WITHDRAW')} replace />} />
+        <Route path={`${slugPrefix}/wallet/withdraw`} element={<Navigate to={getAppPath('/wallet?tab=WITHDRAW')} replace />} />
+        <Route path={`${slugPrefix}/history`} element={<Navigate to={getAppPath('/wallet?tab=HISTORY')} replace />} />
+        <Route path={`${slugPrefix}/wallet/history`} element={<Navigate to={getAppPath('/wallet?tab=HISTORY')} replace />} />
 
         {/* Profile / Account Page */}
         <Route
-          path="/account"
+          path={`${slugPrefix}/account`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <ProfilePage
@@ -515,7 +534,7 @@ export default function App() {
           }
         />
         <Route
-          path="/profile"
+          path={`${slugPrefix}/profile`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <ProfilePage
@@ -530,7 +549,7 @@ export default function App() {
 
         {/* Admin Dashboard Page */}
         <Route
-          path="/admin"
+          path={`${slugPrefix}/admin`}
           element={
             <AdminPage
               user={user}
@@ -541,7 +560,7 @@ export default function App() {
 
         {/* Fair Play Verification Page */}
         <Route
-          path="/fairplay"
+          path={`${slugPrefix}/fairplay`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <FairPlayPage
@@ -554,7 +573,7 @@ export default function App() {
 
         {/* Game Rules Page */}
         <Route
-          path="/rules"
+          path={`${slugPrefix}/rules`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <RulesPage
@@ -566,7 +585,7 @@ export default function App() {
 
         {/* 24/7 Support Page */}
         <Route
-          path="/support"
+          path={`${slugPrefix}/support`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <SupportPage
@@ -581,7 +600,7 @@ export default function App() {
 
         {/* Referral VIP Rewards Page */}
         <Route
-          path="/referral"
+          path={`${slugPrefix}/referral`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <ReferralPage
@@ -593,7 +612,7 @@ export default function App() {
 
         {/* My Bid History & Audit Log Page */}
         <Route
-          path="/bids"
+          path={`${slugPrefix}/bids`}
           element={
             <ProtectedRoute user={user} isCheckingAuth={isCheckingAuth}>
               <BidHistoryPage
@@ -606,18 +625,18 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="/bid-history" element={<Navigate to="/bids" replace />} />
+        <Route path={`${slugPrefix}/bid-history`} element={<Navigate to={getAppPath('/bids')} replace />} />
 
-        {/* Compliance & Cashfree Policy Pages */}
-        <Route path="/terms" element={<PolicyPage user={user} defaultTab="TERMS" />} />
-        <Route path="/privacy" element={<PolicyPage user={user} defaultTab="PRIVACY" />} />
-        <Route path="/refunds" element={<PolicyPage user={user} defaultTab="REFUND" />} />
-        <Route path="/contact" element={<PolicyPage user={user} defaultTab="CONTACT" />} />
-        <Route path="/pricing" element={<PolicyPage user={user} defaultTab="SERVICES" />} />
-        <Route path="/policies" element={<PolicyPage user={user} defaultTab="TERMS" />} />
+        {/* Compliance & Policy Pages */}
+        <Route path={`${slugPrefix}/terms`} element={<PolicyPage user={user} defaultTab="TERMS" />} />
+        <Route path={`${slugPrefix}/privacy`} element={<PolicyPage user={user} defaultTab="PRIVACY" />} />
+        <Route path={`${slugPrefix}/refunds`} element={<PolicyPage user={user} defaultTab="REFUND" />} />
+        <Route path={`${slugPrefix}/contact`} element={<PolicyPage user={user} defaultTab="CONTACT" />} />
+        <Route path={`${slugPrefix}/pricing`} element={<PolicyPage user={user} defaultTab="SERVICES" />} />
+        <Route path={`${slugPrefix}/policies`} element={<PolicyPage user={user} defaultTab="TERMS" />} />
 
-        {/* Default route redirect to /game */}
-        <Route path="*" element={<Navigate to="/game" replace />} />
+        {/* Catch-all route: invalid paths show 404 error page */}
+        <Route path="*" element={cleanSlug ? <WebsiteNotFoundPage /> : <Navigate to={getAppPath('/game')} replace />} />
       </Routes>
       {user && <BottomNav />}
       <GameResultModal data={resultModalData} onClose={handleCloseResultModal} />

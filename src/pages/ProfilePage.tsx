@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
+import { getAppPath } from '../config/appConfig';
 import { 
   User as UserIcon, Copy, RefreshCw, FileText, ArrowUpDown, 
   Bell, Gift, BarChart3, Globe, ShieldCheck, Headset, ChevronRight, LogOut, Check, Wallet, Lock, Ticket
@@ -105,7 +106,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               ₹{balance}
             </div>
             <button
-              onClick={() => navigate('/wallet')}
+              onClick={() => navigate(getAppPath('/wallet'))}
               className="px-3 py-1.5 bg-[#18b660] text-white text-xs font-bold rounded-xl shadow-xs hover:bg-emerald-600 transition flex items-center gap-1"
             >
               <Wallet className="w-3.5 h-3.5" />
@@ -117,7 +118,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {/* Quick Grid */}
         <div className="grid grid-cols-2 gap-2.5">
           <button
-            onClick={() => navigate('/wallet?tab=deposit')}
+            onClick={() => navigate(getAppPath('/wallet?tab=deposit'))}
             className="bg-white p-3.5 rounded-2xl shadow-xs border border-gray-100 flex items-center gap-3 hover:bg-gray-50/80 transition text-left"
           >
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
@@ -130,7 +131,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </button>
 
           <button
-            onClick={() => navigate('/wallet?tab=withdraw')}
+            onClick={() => navigate(getAppPath('/wallet?tab=withdraw'))}
             className="bg-white p-3.5 rounded-2xl shadow-xs border border-gray-100 flex items-center gap-3 hover:bg-gray-50/80 transition text-left"
           >
             <div className="w-10 h-10 rounded-xl bg-red-50 text-red-500 flex items-center justify-center shrink-0">
@@ -146,7 +147,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {/* Menu Items */}
         <div className="bg-white rounded-2xl shadow-xs border border-gray-100 overflow-hidden divide-y divide-gray-50">
           <div 
-            onClick={() => navigate('/bids')}
+            onClick={() => navigate(getAppPath('/bids'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer bg-red-50/20"
           >
             <div className="flex items-center gap-3">
@@ -162,7 +163,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/fairplay')}
+            onClick={() => navigate(getAppPath('/fairplay'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
@@ -175,7 +176,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/referral')}
+            onClick={() => navigate(getAppPath('/referral'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
@@ -188,7 +189,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/rules')}
+            onClick={() => navigate(getAppPath('/rules'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
@@ -201,7 +202,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/wallet?tab=history')}
+            onClick={() => navigate(getAppPath('/wallet?tab=history'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
@@ -214,7 +215,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/contact')}
+            onClick={() => navigate(getAppPath('/contact'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
@@ -227,7 +228,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/terms')}
+            onClick={() => navigate(getAppPath('/terms'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
@@ -240,7 +241,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/refunds')}
+            onClick={() => navigate(getAppPath('/refunds'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
@@ -253,7 +254,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
 
           <div 
-            onClick={() => navigate('/pricing')}
+            onClick={() => navigate(getAppPath('/pricing'))}
             className="p-3.5 flex items-center justify-between hover:bg-gray-50 transition cursor-pointer"
           >
             <div className="flex items-center gap-3">
@@ -270,7 +271,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         <button
           onClick={() => {
             if (onLogout) onLogout();
-            navigate('/login');
+            navigate(getAppPath('/login'));
           }}
           className="w-full py-3.5 rounded-2xl border border-gray-200 bg-white text-gray-800 text-xs font-extrabold flex items-center justify-center gap-2 hover:bg-gray-50 transition shadow-xs"
         >

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
+import { getAppPath } from '../config/appConfig';
 import {
   Gamepad2,
   Trophy,
@@ -255,7 +256,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ user }) => {
                 key={game.id}
                 onClick={() => {
                   if (game.active) {
-                    navigate('/game');
+                    navigate(getAppPath('/game'));
                   }
                 }}
                 className={`relative rounded-3xl overflow-hidden p-4 flex flex-col justify-between h-36 border transition-all ${
@@ -310,7 +311,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ user }) => {
         {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-2 pt-1">
           <button
-            onClick={() => navigate('/wallet')}
+            onClick={() => navigate(getAppPath('/wallet'))}
             className="p-3 bg-white hover:bg-gray-50 border border-gray-200/80 rounded-2xl flex items-center gap-2 text-gray-800 text-xs font-bold transition active:scale-95 shadow-xs"
           >
             <Wallet className="w-4 h-4 text-emerald-600" />
@@ -318,7 +319,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ user }) => {
           </button>
 
           <button
-            onClick={() => navigate('/support')}
+            onClick={() => navigate(getAppPath('/support'))}
             className="p-3 bg-white hover:bg-gray-50 border border-gray-200/80 rounded-2xl flex items-center gap-2 text-gray-800 text-xs font-bold transition active:scale-95 shadow-xs"
           >
             <Headset className="w-4 h-4 text-rose-600" />

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ChevronLeft, RefreshCw, ShieldCheck, UserCheck, LogIn } from 'lucide-react';
 import { User } from '../types';
 import { RealWinLogo } from './RealWinLogo';
+import { getAppPath } from '../config/appConfig';
 
 interface HeaderProps {
   user: User | null;
@@ -18,10 +19,10 @@ export const Header: React.FC<HeaderProps> = ({
   const navigate = useNavigate();
   const location = useLocation();
 
-  const isGamePage = location.pathname === '/' || location.pathname === '/game';
+  const isGamePage = location.pathname === getAppPath('/game') || location.pathname === getAppPath('/') || location.pathname === getAppPath('/home');
 
   const handleBack = () => {
-    navigate('/game');
+    navigate(getAppPath('/game'));
   };
 
   return (
@@ -38,15 +39,15 @@ export const Header: React.FC<HeaderProps> = ({
               <ChevronLeft className="w-6 h-6" />
             </button>
           )}
-          <RealWinLogo size="md" onClick={() => navigate('/game')} />
+          <RealWinLogo size="md" onClick={() => navigate(getAppPath('/game'))} />
         </div>
 
         {/* Right Actions */}
         <div className="flex items-center gap-1.5 sm:gap-2">
           <button
-            onClick={() => navigate('/fairplay')}
+            onClick={() => navigate(getAppPath('/fairplay'))}
             className={`p-1.5 rounded-full hover:bg-white/20 text-white transition active:scale-95 ${
-              location.pathname === '/fairplay' ? 'bg-white/30 text-amber-200 ring-2 ring-white/50' : 'bg-white/10'
+              location.pathname === getAppPath('/fairplay') ? 'bg-white/30 text-amber-200 ring-2 ring-white/50' : 'bg-white/10'
             }`}
             title="Fair Play Verification"
           >
@@ -66,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <button
-            onClick={() => navigate(user ? '/account' : '/login')}
+            onClick={() => navigate(getAppPath(user ? '/account' : '/login'))}
             className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition active:scale-95 flex items-center gap-1 text-xs font-bold"
             title={user ? user.name : 'Login / Register'}
           >
