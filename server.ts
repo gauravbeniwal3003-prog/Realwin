@@ -447,20 +447,20 @@ saveState();
 
 let isProcessingRounds = false;
 
-// Sequential gap catchup looper to guarantee ZERO skipped periods
+// Sequential gap catchup looper to guarantee ZERO skipped periods across ALL rooms 24/7
 export async function checkAndProcessRounds() {
   if (isProcessingRounds) return;
   isProcessingRounds = true;
   try {
-    const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M'];
+    const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
     for (const r of rooms) {
       const { period: currentPeriod } = getActivePeriod(r);
       const currentNum = parseInt(currentPeriod, 10);
       if (isNaN(currentNum)) continue;
 
-      // Ensure that the most recent 100 periods before currentNum are fully populated without any gaps!
-      // We check from currentNum - 1 down to currentNum - 100.
-      for (let offset = 1; offset <= 100; offset++) {
+      // Ensure that the most recent 300 periods before currentNum are fully populated without any gaps!
+      // We check from currentNum - 1 down to currentNum - 300.
+      for (let offset = 1; offset <= 300; offset++) {
         const targetNum = currentNum - offset;
         const targetStr = String(targetNum);
 
@@ -492,20 +492,21 @@ setInterval(async () => {
   }
 }, 1000);
 
-// Resolve orphan pending bets for past completed periods
+// Resolve orphan pending bets for past completed periods across all rooms
 async function resolveOrphanBets() {
   const pendingBets = state.bets.filter(b => b.status === 'PENDING');
   if (pendingBets.length === 0) return;
 
-  const { period: active30 } = getActivePeriod('WINGO_30S');
-  const { period: active1m } = getActivePeriod('WINGO_1M');
+  const rooms: RoomType[] = ['WINGO_30S', 'WINGO_1M', 'PARITY', 'SAPRE', 'BCONE', 'EMERD'];
+  const activePeriodsMap = new Map<RoomType, number>();
+  rooms.forEach(r => {
+    activePeriodsMap.set(r, parseInt(getActivePeriod(r).period, 10));
+  });
 
   for (const bet of pendingBets) {
     const betRoom: RoomType = (bet.room as RoomType) || 'WINGO_30S';
-    const activePeriod = betRoom === 'WINGO_1M' ? active1m : active30;
-
+    const activeNum = activePeriodsMap.get(betRoom) || parseInt(getActivePeriod(betRoom).period, 10);
     const betNum = parseInt(bet.period, 10);
-    const activeNum = parseInt(activePeriod, 10);
 
     if (!isNaN(betNum) && !isNaN(activeNum) && betNum < activeNum) {
       // Find or generate round for this past period
@@ -757,6 +758,15 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     }
   });
 
+  const duration = getDurationForRoom(room);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const curCycle = Math.floor(nowSec / duration);
+  const { period: curPeriod } = getActivePeriod(room);
+  const curActiveNum = parseInt(curPeriod, 10);
+  const roundNum = parseInt(period, 10);
+  const diffOffset = !isNaN(curActiveNum) && !isNaN(roundNum) ? (curActiveNum - roundNum) : 1;
+  const roundTimestamp = (curCycle - diffOffset + 1) * duration * 1000;
+
   let targetRound: GameRound;
   if (existingRound) {
     existingRound.number = winningNum;
@@ -764,7 +774,7 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
     existingRound.bigSmall = bigSmall;
     existingRound.totalBetsCount = roundBets.length;
     existingRound.totalBetsAmount = totalBetAmt;
-    existingRound.timestamp = Date.now();
+    existingRound.timestamp = existingRound.timestamp || roundTimestamp;
     // Re-sort rounds array to guarantee sorting
     state.rounds.sort((a, b) => parseInt(b.period, 10) - parseInt(a.period, 10));
     targetRound = existingRound;
@@ -775,7 +785,7 @@ async function processRoundResult(period: string, room: RoomType = 'WINGO_30S') 
       number: winningNum,
       colors,
       bigSmall,
-      timestamp: Date.now(),
+      timestamp: roundTimestamp,
       seedHash,
       totalBetsCount: roundBets.length,
       totalBetsAmount: totalBetAmt,
@@ -881,9 +891,69 @@ app.get('/api/game/state', async (req, res) => {
   if (userId) {
     const matchedUser = state.users.find(u => u.id === userId || u.phone === userId);
     if (matchedUser) {
-      freshUser = matchedUser;
       const idsToMatch = new Set<string>([matchedUser.id, matchedUser.phone]);
       userBets = state.bets.filter(b => idsToMatch.has(b.userId)).slice(0, 50);
+
+      // Instantly evaluate any pending bets for past periods
+      for (const b of userBets) {
+        if (b.status === 'PENDING') {
+          const bRoom: RoomType = (b.room as RoomType) || 'WINGO_30S';
+          const { period: curPeriod } = getActivePeriod(bRoom);
+          const curPeriodNum = parseInt(curPeriod, 10);
+          const bNum = parseInt(b.period, 10);
+          if (!isNaN(bNum) && !isNaN(curPeriodNum) && bNum < curPeriodNum) {
+            let round = state.rounds.find(r => r.period === b.period && (r.room === bRoom || (!r.room && bRoom === 'WINGO_30S')));
+            if (!round) {
+              await processRoundResult(b.period, bRoom);
+              round = state.rounds.find(r => r.period === b.period && (r.room === bRoom || (!r.room && bRoom === 'WINGO_30S')));
+            }
+            if (round) {
+              const winningNum = round.number;
+              const colors = round.colors;
+              const bigSmall = round.bigSmall;
+              let won = false;
+              let payoutMultiplier = 0;
+              const selStr = String(b.selection).toUpperCase().trim();
+              if (selStr === 'GREEN' && colors.includes('GREEN')) {
+                won = true;
+                payoutMultiplier = winningNum === 5 ? 1.5 : 2;
+              } else if (selStr === 'RED' && colors.includes('RED')) {
+                won = true;
+                payoutMultiplier = winningNum === 0 ? 1.5 : 2;
+              } else if (selStr === 'VIOLET' && colors.includes('VIOLET')) {
+                won = true;
+                payoutMultiplier = 4.5;
+              } else if (selStr === 'BIG' && bigSmall === 'BIG') {
+                won = true;
+                payoutMultiplier = 2;
+              } else if (selStr === 'SMALL' && bigSmall === 'SMALL') {
+                won = true;
+                payoutMultiplier = 2;
+              } else if (selStr === String(winningNum)) {
+                won = true;
+                payoutMultiplier = 9;
+              }
+
+              b.status = won ? 'WON' : 'LOST';
+              b.resultNumber = winningNum;
+              b.multiplier = payoutMultiplier;
+              if (won) {
+                const winAmount = Math.floor(b.amount * payoutMultiplier);
+                b.payout = winAmount;
+                matchedUser.balance += winAmount;
+                b.payoutBalanceAfter = matchedUser.balance;
+                await saveUserToSupabase(matchedUser);
+              } else {
+                b.payout = 0;
+                b.payoutBalanceAfter = matchedUser.balance;
+              }
+              await saveBetToSupabase(b);
+            }
+          }
+        }
+      }
+      saveState();
+      freshUser = matchedUser;
     }
   }
 
@@ -1293,6 +1363,69 @@ app.get('/api/game/my-bets/:userId', async (req, res) => {
       console.warn('Could not query Supabase for my-bets:', dbErr);
     }
   }
+
+  // Ensure any pending bets for past completed periods are immediately resolved with zero delay
+  for (const b of userBets) {
+    if (b.status === 'PENDING') {
+      const bRoom: RoomType = (b.room as RoomType) || 'WINGO_30S';
+      const { period: curPeriod } = getActivePeriod(bRoom);
+      const curNum = parseInt(curPeriod, 10);
+      const bNum = parseInt(b.period, 10);
+      if (!isNaN(bNum) && !isNaN(curNum) && bNum < curNum) {
+        let round = state.rounds.find(r => r.period === b.period && (r.room === bRoom || (!r.room && bRoom === 'WINGO_30S')));
+        if (!round) {
+          await processRoundResult(b.period, bRoom);
+          round = state.rounds.find(r => r.period === b.period && (r.room === bRoom || (!r.room && bRoom === 'WINGO_30S')));
+        }
+        if (round) {
+          const winningNum = round.number;
+          const colors = round.colors;
+          const bigSmall = round.bigSmall;
+          let won = false;
+          let payoutMultiplier = 0;
+          const selStr = String(b.selection).toUpperCase().trim();
+          if (selStr === 'GREEN' && colors.includes('GREEN')) {
+            won = true;
+            payoutMultiplier = winningNum === 5 ? 1.5 : 2;
+          } else if (selStr === 'RED' && colors.includes('RED')) {
+            won = true;
+            payoutMultiplier = winningNum === 0 ? 1.5 : 2;
+          } else if (selStr === 'VIOLET' && colors.includes('VIOLET')) {
+            won = true;
+            payoutMultiplier = 4.5;
+          } else if (selStr === 'BIG' && bigSmall === 'BIG') {
+            won = true;
+            payoutMultiplier = 2;
+          } else if (selStr === 'SMALL' && bigSmall === 'SMALL') {
+            won = true;
+            payoutMultiplier = 2;
+          } else if (selStr === String(winningNum)) {
+            won = true;
+            payoutMultiplier = 9;
+          }
+
+          b.status = won ? 'WON' : 'LOST';
+          b.resultNumber = winningNum;
+          b.multiplier = payoutMultiplier;
+          const u = state.users.find(usr => usr.id === b.userId || usr.phone === b.userId);
+          if (won) {
+            const winAmount = Math.floor(b.amount * payoutMultiplier);
+            b.payout = winAmount;
+            if (u) {
+              u.balance += winAmount;
+              b.payoutBalanceAfter = u.balance;
+              await saveUserToSupabase(u);
+            }
+          } else {
+            b.payout = 0;
+            if (u) b.payoutBalanceAfter = u.balance;
+          }
+          await saveBetToSupabase(b);
+        }
+      }
+    }
+  }
+  saveState();
 
   res.json({ bets: userBets.slice(0, 100) });
 });
