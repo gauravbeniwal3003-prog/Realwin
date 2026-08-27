@@ -13,7 +13,7 @@
  * • Any attempt to visit the old slug or base root will show a realistic
  *   "This website does not exist at all" 404 screen.
  */
-export const APP_SECRET_SLUG = '99'; // <-- CHANGE THIS SINGLE VALUE TO ROTATE YOUR LINK!
+export const APP_SECRET_SLUG = '1828289'; // <-- CHANGE THIS SINGLE VALUE TO ROTATE YOUR LINK!
 
 /**
  * Helper to build internal application routes under the active slug.
